@@ -404,7 +404,8 @@ func TestAdminBanSemantics(t *testing.T) {
 	if _, err := admin.SetBan(ctx, sysop, "handle", "oldguy", "expired", time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.SetBan(ctx, sysop, "ip", "hash123", "flood", time.Time{}); err != nil {
+	ipHash := "AbCdEfGhIjKlMnOpQrStUv" // shape of the server's HMAC
+	if _, err := admin.SetBan(ctx, sysop, "ip", ipHash, "flood", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -412,7 +413,7 @@ func TestAdminBanSemantics(t *testing.T) {
 	if banned, reason, err := admin.IsBanned(ctx, "troll", ""); err != nil || !banned || reason != "abuse" {
 		t.Fatalf("handle ban = %v %q %v", banned, reason, err)
 	}
-	if banned, _, err := admin.IsBanned(ctx, "nobody", "hash123"); err != nil || !banned {
+	if banned, _, err := admin.IsBanned(ctx, "nobody", ipHash); err != nil || !banned {
 		t.Fatalf("ip ban = %v %v", banned, err)
 	}
 	if banned, _, err := admin.IsBanned(ctx, "oldguy", ""); err != nil || banned {
@@ -471,5 +472,20 @@ func TestAdminAreaValidationAndForceDelete(t *testing.T) {
 	}
 	if _, err := admin.CreatePoll(ctx, sysop, "Q", []string{"only"}, time.Time{}); !errors.Is(err, domain.ErrInvalid) {
 		t.Fatalf("one-option poll = %v", err)
+	}
+}
+
+func TestSetBanRejectsRawIPForIPScope(t *testing.T) {
+	admin, _, sysop, _, _ := admServiceFixture(t)
+	ctx := context.Background()
+	if _, err := admin.SetBan(ctx, sysop, "ip", "203.0.113.5", "spam", time.Time{}); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("raw IP accepted as ban value: %v", err)
+	}
+	b, err := admin.SetBan(ctx, sysop, "ip", "AbCdEfGhIjKlMnOpQrStUv", "spam", time.Time{})
+	if err != nil {
+		t.Fatalf("valid hash rejected: %v", err)
+	}
+	if b.Scope != "ip" {
+		t.Fatalf("scope = %q", b.Scope)
 	}
 }

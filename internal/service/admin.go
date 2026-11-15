@@ -257,10 +257,16 @@ func (a *Admin) SetBan(ctx context.Context, actor *domain.User,
 	if value == "" {
 		return nil, fmt.Errorf("%w: ban value is required", domain.ErrInvalid)
 	}
-	if scope == "handle" {
+	switch scope {
+	case "handle":
 		// Bans must be storable and comparable; the account need not exist yet.
 		if err := domain.ValidateHandleShape(value); err != nil {
 			return nil, err
+		}
+	case "ip":
+		// IP bans compare against the HMAC the server logs, never a raw address.
+		if !adminValidIPHash(value) {
+			return nil, fmt.Errorf("%w: ip bans need the 22-character ip_hash from the audit log, not a raw address", domain.ErrInvalid)
 		}
 	}
 	b := &domain.Ban{
@@ -283,6 +289,21 @@ func (a *Admin) SetBan(ctx context.Context, actor *domain.User,
 }
 
 // RemoveBan lifts a ban.
+// adminValidIPHash matches the base64url HMAC the transport produces.
+func adminValidIPHash(v string) bool {
+	if len(v) != 22 {
+		return false
+	}
+	for _, r := range v {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func (a *Admin) RemoveBan(ctx context.Context, actor *domain.User, id string) error {
 	if err := adminRequireSysop(actor); err != nil {
 		return err

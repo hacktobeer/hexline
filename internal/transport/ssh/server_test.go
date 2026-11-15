@@ -3,6 +3,8 @@ package ssh
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net"
@@ -59,6 +61,11 @@ func freePort(t *testing.T) string {
 
 func startBoard(t *testing.T) *testBoard {
 	t.Helper()
+	return startBoardOpts(t, nil)
+}
+
+func startBoardOpts(t *testing.T, mutate func(*config.Config)) *testBoard {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Default()
 	cfg.Server.DataDir = dir
@@ -69,6 +76,9 @@ func startBoard(t *testing.T) *testBoard {
 	cfg.Transport.SSH.MaxSessions = 20
 	cfg.Transport.SSH.MaxPerIP = 20
 	cfg.Transport.SSH.IdleTimeout = 2 * time.Minute
+	if mutate != nil {
+		mutate(cfg)
+	}
 
 	st, err := store.Open(cfg.DBPath())
 	if err != nil {
@@ -357,5 +367,90 @@ func TestRapidKeysAreReplayedIndividually(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("session did not close after batched jq")
+	}
+}
+
+func (b *testBoard) user(t *testing.T, handle string) *domain.User {
+	t.Helper()
+	u, err := b.store.UserByHandle(handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
+}
+
+func (b *testBoard) enrollKey(t *testing.T, u *domain.User) gossh.Signer {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := gossh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := signer.PublicKey()
+	if err := b.store.AddSSHKey(u.ID, Fingerprint(pub), string(gossh.MarshalAuthorizedKey(pub))); err != nil {
+		t.Fatal(err)
+	}
+	return signer
+}
+
+func dialKey(t *testing.T, addr string, user string, signer gossh.Signer) (*gossh.Client, error) {
+	t.Helper()
+	return gossh.Dial("tcp", addr, &gossh.ClientConfig{
+		User: user, Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+	})
+}
+
+func TestPublicKeyLoginWorksAndHonoursBans(t *testing.T) {
+	b := startBoard(t)
+	signer := b.enrollKey(t, b.user(t, "tester"))
+
+	client, err := dialKey(t, b.addr, "tester", signer)
+	if err != nil {
+		t.Fatalf("key login: %v", err)
+	}
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := sess.Output("whoami")
+	if err != nil || strings.TrimSpace(string(out)) != "tester" {
+		t.Fatalf("whoami over key auth = %q, %v", out, err)
+	}
+	client.Close()
+
+	if err := b.store.CreateBan(&domain.Ban{Scope: "handle", Value: "tester", Reason: "spam"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dialKey(t, b.addr, "tester", signer); err == nil {
+		t.Fatal("banned handle still logged in with a key")
+	}
+}
+
+func TestPublicKeyAuthCanBeDisabled(t *testing.T) {
+	b := startBoardOpts(t, func(cfg *config.Config) {
+		cfg.Transport.SSH.AllowPubkey = false
+	})
+	signer := b.enrollKey(t, b.user(t, "tester"))
+	if _, err := dialKey(t, b.addr, "tester", signer); err == nil {
+		t.Fatal("key auth accepted while allow_pubkey = false")
+	}
+}
+
+func TestGuestIsBlockedByIPBan(t *testing.T) {
+	b := startBoard(t)
+	ipHash := b.srv.HashIP("127.0.0.1:12345")
+	if err := b.store.CreateBan(&domain.Ban{Scope: "ip", Value: ipHash, Reason: "abuse"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := gossh.Dial("tcp", b.addr, &gossh.ClientConfig{
+		User: "guest", Auth: []gossh.AuthMethod{gossh.Password("anything")},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+	})
+	if err == nil {
+		t.Fatal("banned IP connected as guest")
 	}
 }

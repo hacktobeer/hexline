@@ -89,18 +89,21 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{deps: d, log: d.Log, perIP: map[string]int{}, ipSecret: secret}
 
-	srv, err := wish.NewServer(
+	opts := []ssh.Option{
 		wish.WithAddress(d.Cfg.Transport.SSH.Address),
 		wish.WithHostKeyPath(keyPath),
 		wish.WithIdleTimeout(d.Cfg.Transport.SSH.IdleTimeout),
 		wish.WithVersion("hexline"),
-		wish.WithBanner(d.Cfg.Transport.SSH.BannerText+"\r\n"),
+		wish.WithBanner(d.Cfg.Transport.SSH.BannerText + "\r\n"),
 		wish.WithPasswordAuth(s.passwordAuth),
-		wish.WithPublicKeyAuth(s.publicKeyAuth),
 		wish.WithMiddleware(func(next ssh.Handler) ssh.Handler {
 			return s.dispatch
 		}),
-	)
+	}
+	if d.Cfg.Transport.SSH.AllowPubkey {
+		opts = append(opts, wish.WithPublicKeyAuth(s.publicKeyAuth))
+	}
+	srv, err := wish.NewServer(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("ssh: server: %w", err)
 	}
@@ -156,6 +159,9 @@ func (s *Server) passwordAuth(ctx ssh.Context, password string) bool {
 	ipHash := s.HashIP(ctx.RemoteAddr().String())
 
 	if strings.EqualFold(handle, "guest") {
+		if banned, _, err := s.deps.Admin.IsBanned(ctx, "", ipHash); err == nil && banned {
+			return false
+		}
 		ctx.SetValue(ctxGuest, true)
 		return true
 	}
@@ -183,7 +189,7 @@ func (s *Server) passwordAuth(ctx ssh.Context, password string) bool {
 }
 
 func (s *Server) publicKeyAuth(ctx ssh.Context, key ssh.PublicKey) bool {
-	fp := base64.RawStdEncoding.EncodeToString(sha256Sum(key.Marshal()))
+	fp := Fingerprint(key)
 	userID, err := s.deps.Store.UserIDBySSHKey(fp)
 	if err != nil {
 		return false
@@ -192,9 +198,20 @@ func (s *Server) publicKeyAuth(ctx ssh.Context, key ssh.PublicKey) bool {
 	if err != nil || !u.CanLogin() {
 		return false
 	}
+	// Key auth must honour bans exactly like password auth, otherwise a banned
+	// caller only has to enroll a key to return.
+	if banned, _, err := s.deps.Admin.IsBanned(ctx, u.Handle, s.HashIP(ctx.RemoteAddr().String())); err == nil && banned {
+		return false
+	}
 	ctx.SetValue(ctxUserID, u.ID)
 	ctx.SetValue(ctxHandle, u.Handle)
 	return true
+}
+
+// Fingerprint renders the stable key identifier stored in ssh_keys:
+// base64url(SHA-256(key blob)), without the SHA256: prefix.
+func Fingerprint(key ssh.PublicKey) string {
+	return base64.RawStdEncoding.EncodeToString(sha256Sum(key.Marshal()))
 }
 
 func sha256Sum(b []byte) []byte {

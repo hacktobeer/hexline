@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/hacktobeer/hexline/internal/domain"
 	"github.com/hacktobeer/hexline/internal/service"
+	sshtransport "github.com/hacktobeer/hexline/internal/transport/ssh"
 )
 
 // adminCmd is the sysop CLI.
@@ -469,8 +471,8 @@ func adminBanCmd(configPath *string) *cobra.Command {
 			})
 		},
 	}
-	add.Flags().StringVar(&scope, "scope", "handle", "handle or ip")
-	add.Flags().StringVar(&value, "value", "", "handle or HMAC IP hash")
+	add.Flags().StringVar(&scope, "scope", "handle", "handle, or ip (requires the 22-char ip_hash from the audit log)")
+	add.Flags().StringVar(&value, "value", "", "handle, or the 22-char HMAC ip_hash (raw IPs never match)")
 	add.Flags().StringVar(&reason, "reason", "", "why the ban was applied")
 	add.Flags().StringVar(&expires, "expires", "", "expiry (RFC3339, date, or duration; empty = permanent)")
 
@@ -686,7 +688,7 @@ func adminUserCmd(configPath *string) *cobra.Command {
 			}
 			u, err := rt.auth.Register(context.Background(), service.RegisterRequest{
 				Handle: handle, Password: password, RealName: realName,
-				AllowClosed: true, AllowReserved: true,
+				AllowClosed: true, AllowReserved: domain.Role(role) == domain.RoleSysop,
 			})
 			if err != nil {
 				return err
@@ -872,8 +874,95 @@ func adminUserCmd(configPath *string) *cobra.Command {
 		},
 	}
 
-	user.AddCommand(create, list, setRole, promote, passwd, status)
+	user.AddCommand(create, list, setRole, promote, passwd, status, adminKeyCmd(configPath))
 	return user
+}
+
+// adminKeyCmd manages enrolled SSH public keys used by key authentication.
+func adminKeyCmd(configPath *string) *cobra.Command {
+	key := &cobra.Command{
+		Use:   "key",
+		Short: "Manage SSH public keys",
+		RunE:  func(cmd *cobra.Command, args []string) error { return cmd.Help() },
+	}
+
+	add := &cobra.Command{
+		Use:   "add HANDLE KEYFILE",
+		Short: "Enroll a public key (authorized_keys line or .pub file)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			raw, err := os.ReadFile(args[1])
+			if err != nil {
+				return err
+			}
+			pub, _, _, _, err := gossh.ParseAuthorizedKey(raw)
+			if err != nil {
+				return fmt.Errorf("parse %s: %w", args[1], err)
+			}
+			fp := sshtransport.Fingerprint(pub)
+			return adminWithRuntime(*configPath, func(rt *runtime) error {
+				u, err := rt.store.UserByHandle(args[0])
+				if err != nil {
+					return err
+				}
+				if err := rt.store.AddSSHKey(u.ID, fp, string(gossh.MarshalAuthorizedKey(pub))); err != nil {
+					return err
+				}
+				_ = rt.store.RecordAudit(domain.AuditEntry{Actor: "cli", Action: "user.ssh_key_add",
+					TargetKind: "user", TargetID: u.ID, Detail: fmt.Sprintf(`{"fingerprint":%q}`, fp)})
+				fmt.Printf("enrolled %s for %s\n", fp, u.Handle)
+				return nil
+			})
+		},
+	}
+
+	list := &cobra.Command{
+		Use:   "list HANDLE",
+		Short: "List an account's keys",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return adminWithRuntime(*configPath, func(rt *runtime) error {
+				u, err := rt.store.UserByHandle(args[0])
+				if err != nil {
+					return err
+				}
+				keys, err := rt.store.SSHKeys(u.ID)
+				if err != nil {
+					return err
+				}
+				tw := adminTabWriter()
+				fmt.Fprintln(tw, "FINGERPRINT\tENROLLED\tKEY")
+				for _, k := range keys {
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", k.Fingerprint, k.CreatedAt.Format("2006-01-02"), k.Key)
+				}
+				return tw.Flush()
+			})
+		},
+	}
+
+	remove := &cobra.Command{
+		Use:   "remove HANDLE FINGERPRINT",
+		Short: "Remove an enrolled key",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return adminWithRuntime(*configPath, func(rt *runtime) error {
+				u, err := rt.store.UserByHandle(args[0])
+				if err != nil {
+					return err
+				}
+				if err := rt.store.RemoveSSHKey(u.ID, args[1]); err != nil {
+					return err
+				}
+				_ = rt.store.RecordAudit(domain.AuditEntry{Actor: "cli", Action: "user.ssh_key_remove",
+					TargetKind: "user", TargetID: u.ID, Detail: fmt.Sprintf(`{"fingerprint":%q}`, args[1])})
+				fmt.Printf("removed %s from %s\n", args[1], u.Handle)
+				return nil
+			})
+		},
+	}
+
+	key.AddCommand(add, list, remove)
+	return key
 }
 
 func randomPassword() string {

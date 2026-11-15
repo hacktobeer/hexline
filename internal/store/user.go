@@ -190,23 +190,49 @@ func (s *Store) UserIDBySSHKey(fingerprint string) (string, error) {
 	return id, notFound(err)
 }
 
-// ActiveHandlesOlderThan lists active accounts older than t (for stats).
-func (s *Store) ActiveHandlesOlderThan(t time.Time) ([]string, error) {
-	rows, err := s.db.Query(`SELECT handle FROM users WHERE status = ? AND created_at < ?`,
-		domain.StatusActive, ts(t))
+// SSHKeys lists a user's enrolled public keys (fingerprint, key, created_at).
+func (s *Store) SSHKeys(userID string) ([]SSHKey, error) {
+	rows, err := s.db.Query(`SELECT fingerprint, key, created_at FROM ssh_keys
+		WHERE user_id = ? ORDER BY created_at`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []SSHKey
 	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
+		var k SSHKey
+		var createdAt int64
+		if err := rows.Scan(&k.Fingerprint, &k.Key, &createdAt); err != nil {
 			return nil, err
 		}
-		out = append(out, h)
+		k.CreatedAt = fromTS(createdAt)
+		out = append(out, k)
 	}
 	return out, rows.Err()
+}
+
+// RemoveSSHKey deletes one key from an account.
+func (s *Store) RemoveSSHKey(userID, fingerprint string) error {
+	res, err := s.db.Exec(`DELETE FROM ssh_keys WHERE user_id = ? AND fingerprint = ?`,
+		userID, fingerprint)
+	if err != nil {
+		return fmt.Errorf("store: remove ssh key: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// SSHKey is an enrolled public key.
+type SSHKey struct {
+	Fingerprint string
+	Key         string
+	CreatedAt   time.Time
 }
 
 func isUniqueErr(err error) bool {
