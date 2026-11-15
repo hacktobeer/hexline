@@ -132,6 +132,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case tea.KeyMsg:
+		// Terminal reads can deliver several runes at once (fast typing, paste,
+		// scripted clients). Single-key hotkeys would be missed if we forwarded
+		// "jq" as one key, so replay each rune separately.
+		if len(m.Runes) > 1 {
+			var cmds []tea.Cmd
+			for _, r := range m.Runes {
+				_, c := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+				cmds = append(cmds, c)
+			}
+			return a, tea.Batch(cmds...)
+		}
 		switch m.String() {
 		case "ctrl+c":
 			a.quitting = true

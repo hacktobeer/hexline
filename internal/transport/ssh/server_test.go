@@ -317,3 +317,45 @@ func TestBannedHandleRejectedOverSSH(t *testing.T) {
 		t.Fatal("banned handle was allowed to authenticate")
 	}
 }
+
+func TestRapidKeysAreReplayedIndividually(t *testing.T) {
+	b := startBoard(t)
+	client := dial(t, b.addr, "tester", "test-password-1")
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if err := sess.RequestPty("xterm-256color", 24, 80, gossh.TerminalModes{gossh.ECHO: 1}); err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := sess.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out syncBuffer
+	sess.Stdout = &out
+	sess.Stderr = &out
+	if err := sess.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	// Wait for the first paint, then send two keys in one write: the app must
+	// replay them separately or the quit key is swallowed by "jq".
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "Boards") {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "Boards") {
+		t.Fatalf("menu did not render: %q", out.String())
+	}
+	if _, err := io.WriteString(stdin, "jq"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- sess.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session did not close after batched jq")
+	}
+}

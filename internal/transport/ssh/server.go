@@ -283,8 +283,24 @@ func (s *Server) runSession(sess ssh.Session) {
 		tea.WithOutput(sess),
 		tea.WithAltScreen(),
 	)
-	if _, err := program.Run(); err != nil {
-		s.log.Warn("session ended with error", "handle", user.Handle, "err", err)
+	// A TUI session ends in one of two ways: the program exits (quit key) or
+	// the client goes away. Without watching the SSH context, a dead client
+	// leaves the program writing into a closed channel and the node occupied
+	// forever.
+	done := make(chan error, 1)
+	go func() {
+		_, err := program.Run()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			s.log.Warn("session ended with error", "handle", user.Handle, "err", err)
+		}
+	case <-sess.Context().Done():
+		program.Kill()
+		<-done
+		s.log.Debug("session closed by client", "handle", user.Handle)
 	}
 }
 
