@@ -472,7 +472,11 @@ func (s *threadListScreen) View(a *App) string {
 	}
 	for i, t := range s.threads {
 		left := boardThreadMarker(t) + t.Subject
-		right := fmt.Sprintf("%s · %d replies", t.Author, t.PostCount)
+		replies := t.PostCount - 1
+		if replies < 0 {
+			replies = 0
+		}
+		right := fmt.Sprintf("%s · %d replies", t.Author, replies)
 		if t.Unread > 0 {
 			right += fmt.Sprintf(" · %d new", t.Unread)
 		}

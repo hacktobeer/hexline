@@ -125,7 +125,7 @@ func TestThreadListViewRendersThreadsUnreadAndMarkers(t *testing.T) {
 	boardRun(t, app, screen)
 	view := screen.View(app)
 	for _, want := range []string{"[general] General", "Welcome thread",
-		"tui-user", "3 replies", "1 new", "S sticky", "L locked"} {
+		"tui-user", "2 replies", "1 new", "S sticky", "L locked"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("thread list view missing %q:\n%s", want, view)
 		}
