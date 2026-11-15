@@ -191,7 +191,7 @@ Rules: TUI never touches SQL; services never touch `*tea.Model`; store never for
 cmd/bbs/                 main, subcommand dispatch (serve, migrate, admin, backup, doctor)
 internal/config/         TOML schema, env overlay, validation, defaults
 internal/domain/         entities, value objects, typed errors, permission constants
-internal/store/          sqlite open/pragmas, migrations/*.sql, one file per aggregate
+internal/store/          sqlite open/pragmas, migrations/*, one file per aggregate
 internal/service/        auth, board, mail, filearea, presence, moderation, admin, retention
 internal/render/         sanitize.go, markup.go, layout.go, ansi.go, art.go (SAUCE)
 internal/tui/            app.go (shell/router), screens/, components/, keys.go, theme.go
@@ -199,7 +199,7 @@ internal/transport/ssh/  server, host key mgmt, auth callbacks, session→tea pr
 internal/hub/            in-process broker: presence, chat, notifications
 internal/admin/          CLI command implementations (cobra)
 internal/version/        build info (ldflags)
-migrations/              embedded via embed.FS
+internal/store/migrations/  embedded via embed.FS (must live with the store package)
 docs/                    DESIGN.md, TASKS.md, ops.md, deps.md
 testdata/                golden renders, sample .ans, fixtures
 ```
