@@ -56,6 +56,49 @@ WantedBy=multi-user.target
 `Port 22` is possible with `AmbientCapabilities=CAP_NET_BIND_SERVICE` or an nginx/HAProxy stream
 front-end. Prefer the stream front-end if you need per-IP rate limiting before SSH.
 
+## Docker
+
+The image is distroless (no shell, no package manager, ~17 MB) and runs as UID 65532. All state
+lives in `/data`: SQLite database, SSH host key, uploads, backups.
+
+```sh
+docker build -t hexline .
+
+# first run (one-shot container, same volume)
+docker volume create hexline-data
+docker run --rm -v hexline-data:/data hexline admin user create --handle sysop --role sysop
+
+# serve
+docker run -d --name hexline -p 2222:2222 -v hexline-data:/data hexline
+ssh -p 2222 sysop@127.0.0.1
+```
+
+`HEXLINE_DATA_DIR`, `HEXLINE_SSH_ADDRESS` and JSON logging are already set in the image. Override
+anything with `-e`, or mount a config file and run `serve --config /data/hexline.toml`.
+
+Compose: copy `docker-compose.example.yml` to `docker-compose.yml`, then
+`docker compose run --rm hexline admin user create --handle sysop --role sysop` and
+`docker compose up -d`.
+
+Notes:
+
+- **Bind mounts** must be writable by UID 65532: `mkdir data && sudo chown 65532:65532 data`.
+  Named volumes inherit the image's ownership and just work.
+- **No shell**: run admin commands as the entrypoint
+  (`docker run --rm -v hexline-data:/data hexline admin user list`) or
+  `docker exec hexline /usr/local/bin/bbs admin stats`.
+- **Backups**: `docker exec hexline /usr/local/bin/bbs backup --out /data/backups`, then
+  `docker cp hexline:/data/backups ./backups`. Also copy `/data/host_ed25519`; losing it makes
+  callers see a host-key warning.
+- **Upgrades**: rebuild/pull the image, `docker rm -f hexline`, start the new one. `serve` applies
+  migrations on boot (`--migrate=false` disables that); take a backup first.
+- **Metrics** are off by default. Inside a container the loopback default is unreachable from the
+  host: set `HEXLINE_METRICS=true` and `HEXLINE_METRICS_ADDR=0.0.0.0:9101`, publish 9101, and
+  restrict it at the firewall. `/healthz` and `/metrics` then answer.
+- **Timezone data** is embedded in the binary, so caller profiles can pick any zone without
+  tzdata in the image.
+- **Architectures**: `docker buildx build --platform linux/amd64,linux/arm64 -t hexline .`.
+
 ## Configuration
 
 Every `hexline.toml` key has a `HEXLINE_*` environment override (see `internal/config/config.go`

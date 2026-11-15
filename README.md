@@ -63,6 +63,17 @@ ssh -p 2222 sysop@127.0.0.1
 Requires Go 1.26+ (the exact toolchain is pinned in `go.mod`). No Node, no database server,
 no cgo. Prefer plain Go? `go build -o bbs ./cmd/bbs` does what `make build` does.
 
+Prefer containers? The repo ships a distroless image and a compose example:
+
+```sh
+docker build -t hexline .
+docker volume create hexline-data
+docker run --rm -v hexline-data:/data hexline admin user create --handle sysop --role sysop
+docker run -d --name hexline -p 2222:2222 -v hexline-data:/data hexline
+```
+
+See [`docs/ops.md`](docs/ops.md#docker) for volumes, bind-mount ownership, backups and upgrades.
+
 Drive it without a terminal:
 
 ```sh

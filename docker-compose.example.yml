@@ -1,0 +1,25 @@
+# Copy to docker-compose.yml and adjust. First run:
+#   docker compose run --rm hexline admin user create --handle sysop --role sysop
+#   docker compose up -d
+services:
+  hexline:
+    build: .
+    image: hexline:local
+    container_name: hexline
+    restart: unless-stopped
+    ports:
+      - "2222:2222"
+    volumes:
+      - hexline-data:/data
+    environment:
+      HEXLINE_SSH_ADDRESS: ":2222"
+      HEXLINE_LOG_FORMAT: json
+      # Metrics are opt-in and loopback by default; publish 9101 or scrape from
+      # inside the container network if you enable them.
+      # HEXLINE_METRICS: "true"
+      # HEXLINE_METRICS_ADDR: "0.0.0.0:9101"
+    # The image is distroless: exec into it with
+    #   docker compose exec hexline /usr/local/bin/bbs admin user list
+
+volumes:
+  hexline-data:

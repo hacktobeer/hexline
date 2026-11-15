@@ -15,6 +15,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// Embed the IANA timezone database: the container image has no tzdata,
+	// and caller profiles may select any zone.
+	_ "time/tzdata"
 
 	"github.com/spf13/cobra"
 

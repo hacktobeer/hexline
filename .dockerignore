@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+*.md
+docs/
+data/
+dist/
+backups/
+*.db
+*.db-wal
+*.db-shm
+*.log
+/bbs
+/loadgen
+/seedtmp
+Dockerfile
+.dockerignore
