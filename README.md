@@ -26,6 +26,9 @@
 </p>
 <p align="center"><em>Who's online: live nodes, activity and idle time.</em></p>
 
+These are captures of a real SSH session, not mockups — regenerate them with
+`python3 docs/screenshots/capture.py` (see [`docs/screenshots/README.md`](docs/screenshots/README.md)).
+
 ## Read this first
 
 - [`docs/DESIGN.md`](docs/DESIGN.md) — vision, feature set, architecture, data model, security,

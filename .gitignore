@@ -21,3 +21,6 @@
 
 # local tools
 /loadgen
+
+# python
+__pycache__/
