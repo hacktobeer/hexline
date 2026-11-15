@@ -247,6 +247,9 @@ func scanFileArea(sc interface{ Scan(...any) error }) (*domain.FileArea, error) 
 	if a.ACL.Post, err = domain.ParseACL(aclUpload); err != nil {
 		return nil, fmt.Errorf("store: file area %s upload acl: %w", a.Tag, err)
 	}
+	// File areas have no separate moderation ACL column; moderating a file
+	// area always requires the moderator role.
+	a.ACL.Moderate = []domain.Role{domain.RoleModerator}
 	a.CreatedAt = fromTS(createdAt)
 	return &a, nil
 }
