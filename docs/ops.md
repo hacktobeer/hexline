@@ -141,6 +141,31 @@ bbs admin prune --yes  # delete sessions, audit rows, oneliners and soft-deleted
 Categories come from `[retention]`; a zero disables that category. Pruning is permanent: the audit
 trail is what you need after an incident, so run the dry run first and keep `audit_days` generous.
 
+## Releasing
+
+Releases are tag-driven and automated by `.github/workflows/release.yml` (GoReleaser v2):
+
+```sh
+git tag -a v1.0.0 -m "hexline 1.0.0"
+git push origin v1.0.0
+```
+
+The workflow runs the test suite, then publishes a GitHub release with static `linux`/`darwin`
+binaries for `amd64` and `arm64`, tarballs that include `README.md`, `docs/*.md` and
+`hexline.example.toml`, and a `checksums.txt`. The changelog groups `feat:` and `fix:` commits and
+drops docs/test/chore/ci/build noise. `bbs version` reports the tag, commit and build date baked in
+with `-X` ldflags.
+
+Dry-run locally before tagging:
+
+```sh
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish   # writes dist/
+```
+
+CI validates the config on every push. Container images are built by the Dockerfile (CI and
+`docs/ops.md#docker`), not by GoReleaser.
+
 ## Upgrade
 
 1. `bbs backup`

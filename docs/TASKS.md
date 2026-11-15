@@ -17,7 +17,7 @@ D3 open registration with new-user probation (M1.3 + M5.8). D4 web mirror is v1.
 | M3 Mail + files | **done** (minus HTTP URLs) | inbox/sent, read flags, thread keys, quota, blocklist; file upload/download via `ssh put`/`get`, SHA-256, ratings; tokenized HTTP download deferred to v1.x |
 | M4 Community | **done** | one-liners, polls, bulletins + dismissals, live chat (global/sysop, in-memory), who's-online |
 | M5 Sysop & ops | **done** | sysop CLI (area/filearea/bulletin/poll/ban/audit/stats/prune/broadcast), in-BBS menu, audit, backup, doctor, metrics, retention, probation promotion |
-| M6 Hardening | **partly** | e2e over real SSH + 100-session load run + `govulncheck` clean + fuzz/race/traversal tests are done; `gosec`/`golangci-lint` are wired in CI/Makefile but not installed in this environment; goreleaser not set up |
+| M6 Hardening | **partly** | e2e over real SSH + 100-session load run + `govulncheck` clean + fuzz/race/traversal tests are done; `gosec`/`golangci-lint` are wired in CI/Makefile but not installed in this environment; releases are automated (`.goreleaser.yaml` + tag workflow) but no tag has been cut yet |
 
 Deviations worth reviewing:
 

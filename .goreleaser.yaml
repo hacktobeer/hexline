@@ -1,0 +1,79 @@
+# GoReleaser configuration. Validate with `goreleaser check`; dry-run with
+# `goreleaser release --snapshot --clean`. Publishing happens on v* tags via
+# .github/workflows/release.yml.
+version: 2
+
+project_name: hexline
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: bbs
+    main: ./cmd/bbs
+    binary: bbs
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/hacktobeer/hexline/internal/version.Version={{ .Version }}
+      - -X github.com/hacktobeer/hexline/internal/version.Commit={{ .Commit }}
+      - -X github.com/hacktobeer/hexline/internal/version.BuildDate={{ .CommitDate }}
+    # Servers and the machines that administer them.
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - hexline.example.toml
+      - docs/*.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^build:"
+      - "^style:"
+  groups:
+    - title: Features
+      regexp: '^feat'
+      order: 0
+    - title: Fixes
+      regexp: '^fix'
+      order: 1
+    - title: Other
+      order: 999
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "hexline {{ .Version }}"
+  footer: |
+    **Container image:** `docker build -t hexline .` from the matching tag (see docs/ops.md#docker).
+
+    Verify the download with `sha256sum -c checksums.txt`.
