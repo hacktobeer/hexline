@@ -225,10 +225,17 @@ func (a *App) Push(route Route, arg any) tea.Cmd {
 	return s.Init(a)
 }
 
+// ScreenLeaver is implemented by screens holding resources that must be
+// released when the screen is popped (chat subscriptions, timers).
+type ScreenLeaver interface{ OnLeave() }
+
 // Pop returns to the previous screen; the root screen stays put.
 func (a *App) Pop() tea.Cmd {
 	if len(a.stack) <= 1 {
 		return nil
+	}
+	if l, ok := a.top().(ScreenLeaver); ok {
+		l.OnLeave()
 	}
 	a.stack = a.stack[:len(a.stack)-1]
 	return a.top().Init(a)
@@ -243,6 +250,9 @@ func (a *App) Replace(route Route, arg any) tea.Cmd {
 	if len(a.stack) == 0 {
 		a.stack = []Screen{s}
 	} else {
+		if l, ok := a.top().(ScreenLeaver); ok {
+			l.OnLeave()
+		}
 		a.stack[len(a.stack)-1] = s
 	}
 	return s.Init(a)

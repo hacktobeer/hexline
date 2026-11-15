@@ -5,7 +5,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +119,7 @@ type chatScreen struct {
 	input   textinput.Model
 	sub     *commChatSub
 	live    <-chan hub.Event
+	owner   *App
 }
 
 func newChatScreen(a *App, arg any) Screen {
@@ -135,14 +135,10 @@ func newChatScreen(a *App, arg any) Screen {
 		channel:    channel,
 	}
 	s.input = NewInput("say something to #"+channel, 70)
+	s.owner = a
 	s.input.CharLimit = 400
 	if commSafeCommunity(a) {
 		s.events = a.Community.ChatHistory(channel)
-	}
-	// Chat is based on a broker subscription. If the screen is dropped without
-	// a close hook, the finalizer makes sure the subscription is released.
-	if a != nil {
-		runtime.SetFinalizer(s, func(x *chatScreen) { commChatRelease(a, x.sub) })
 	}
 	return s
 }
@@ -171,6 +167,11 @@ func (s *chatScreen) Init(a *App) tea.Cmd {
 		cmds = append(cmds, WaitForHub(s.live))
 	}
 	return tea.Batch(cmds...)
+}
+
+// OnLeave releases the broker subscription when the screen is popped.
+func (s *chatScreen) OnLeave() {
+	s.releaseSubscription(s.owner)
 }
 
 // releaseSubscription cancels a live broker subscription. Safe to call twice.
