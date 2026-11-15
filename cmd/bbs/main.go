@@ -3,8 +3,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,6 +21,7 @@ import (
 	"github.com/hacktobeer/hexline/internal/config"
 	"github.com/hacktobeer/hexline/internal/domain"
 	"github.com/hacktobeer/hexline/internal/hub"
+	"github.com/hacktobeer/hexline/internal/metrics"
 	"github.com/hacktobeer/hexline/internal/service"
 	"github.com/hacktobeer/hexline/internal/store"
 	sshtransport "github.com/hacktobeer/hexline/internal/transport/ssh"
@@ -92,6 +96,9 @@ func newRuntime(cfg *config.Config, log *slog.Logger) (*runtime, error) {
 	rt.files = service.NewFiles(st, cfg)
 	rt.community = service.NewCommunity(st, cfg, rt.broker)
 	rt.admin = service.NewAdmin(st, cfg, rt.broker)
+	// Ban enforcement lives in the admin service but must run before any
+	// credential check, so the auth service gets a lookup hook.
+	rt.auth.SetBanChecker(rt.admin.IsBanned)
 	return rt, nil
 }
 
@@ -144,6 +151,7 @@ func serveCmd(configPath *string) *cobra.Command {
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			startMetrics(ctx, cfg, srv, rt.presence, logger)
 			logger.Info("hexline listening",
 				"address", cfg.Transport.SSH.Address, "db", cfg.DBPath(),
 				"host_key", cfg.HostKeyPath(), "data_dir", cfg.Server.DataDir)
@@ -299,6 +307,55 @@ func doctorCmd(configPath *string) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// startMetrics serves the opt-in metrics/health listener. It is a no-op when
+// metrics are disabled.
+func startMetrics(ctx context.Context, cfg *config.Config, srv *sshtransport.Server,
+	presence *hub.Presence, log *slog.Logger) {
+	if !cfg.Metrics.Enabled {
+		return
+	}
+	dbSize := func() int64 {
+		if fi, err := os.Stat(cfg.DBPath()); err == nil {
+			return fi.Size()
+		}
+		return 0
+	}
+	handler := metrics.New(srv.ActiveSessions, srv.TotalSessions, presence.Count, dbSize)
+	srvHTTP := &http.Server{
+		Addr:              cfg.Metrics.Address,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	if !isLoopbackAddr(cfg.Metrics.Address) {
+		log.Warn("metrics listener is not bound to loopback; restrict access with a firewall",
+			"address", cfg.Metrics.Address)
+	}
+	go func() {
+		log.Info("metrics listening", "address", cfg.Metrics.Address)
+		if err := srvHTTP.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Warn("metrics server stopped", "err", err)
+		}
+	}()
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srvHTTP.Shutdown(shutdown)
+	}()
+}
+
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func newLogger() *slog.Logger {
