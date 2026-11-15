@@ -1,9 +1,30 @@
-# hexline
+<p align="center">
+  <img src="docs/logo.svg" alt="hexline — a bulletin board system in Go" width="640">
+</p>
 
-A terminal-first Bulletin Board System in Go — SSH, message areas, file areas, mail,
-one-liners, chat. Single binary, SQLite, no interactive web UI.
+<p align="center">
+  <strong>A terminal-first bulletin board system in Go.</strong><br>
+  SSH · message bases · mail · files · chat · one binary · SQLite
+</p>
 
 **Status:** v1.0 implemented. Licensed Apache-2.0.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/main-menu.svg" alt="Main menu with new mail and unread counts" width="700">
+</p>
+<p align="center"><em>Main menu: new mail, unread counts and the MOTD. Everything is a hotkey.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/thread.svg" alt="Reading a thread with markup, quotes and signatures" width="700">
+</p>
+<p align="center"><em>A thread: markup, quotes, signatures, and <code>o</code> to page backwards.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/whos-online.svg" alt="Who's online with two callers" width="620">
+</p>
+<p align="center"><em>Who's online: live nodes, activity and idle time.</em></p>
 
 ## Read this first
 
@@ -36,7 +57,8 @@ export HEXLINE_DATA_DIR=$PWD/data
 ssh -p 2222 sysop@127.0.0.1
 ```
 
-Requires Go 1.24+. No Node, no database server, no cgo.
+Requires Go 1.26+ (the exact toolchain is pinned in `go.mod`). No Node, no database server,
+no cgo. Prefer plain Go? `go build -o bbs ./cmd/bbs` does what `make build` does.
 
 Drive it without a terminal:
 
