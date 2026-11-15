@@ -243,7 +243,13 @@ func (b *Boards) CreateThread(ctx context.Context, u *domain.User, areaID, subje
 	if err := b.boardCheckRate(u); err != nil {
 		return nil, err
 	}
-	return b.st.CreateThread(area.ID, u.ID, subject, body, b.now())
+	thread, err := b.st.CreateThread(area.ID, u.ID, subject, body, b.now())
+	if err != nil {
+		return nil, err
+	}
+	// Authors have read their own post; no unread badge for your own writing.
+	_ = b.MarkRead(ctx, u, thread.ID)
+	return thread, nil
 }
 
 // Reply appends a post to an unlocked thread.
@@ -271,7 +277,12 @@ func (b *Boards) Reply(ctx context.Context, u *domain.User, threadID, body strin
 	if err := b.boardCheckRate(u); err != nil {
 		return nil, err
 	}
-	return b.st.CreatePost(thread.ID, u.ID, body, b.now())
+	post, err := b.st.CreatePost(thread.ID, u.ID, body, b.now())
+	if err != nil {
+		return nil, err
+	}
+	_ = b.MarkRead(ctx, u, thread.ID)
+	return post, nil
 }
 
 // EditPost updates the body of a live post. Authors may edit their own posts;

@@ -348,6 +348,11 @@ func TestBoardsSearchRespectsACLAndUnreadTotal(t *testing.T) {
 		t.Fatalf("empty search = %v, want invalid", err)
 	}
 
+	// Authors do not get an unread badge for their own posts; a reply from
+	// someone else is what makes the thread unread.
+	if _, err := boards.Reply(ctx, mod, thread.ID, "reply in the public thread"); err != nil {
+		t.Fatal(err)
+	}
 	total, err := boards.UnreadTotal(ctx, user.ID)
 	if err != nil || total != 1 {
 		t.Fatalf("unread total = %d, %v; want 1", total, err)

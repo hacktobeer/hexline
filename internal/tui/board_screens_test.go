@@ -69,7 +69,7 @@ func boardRun(t *testing.T, app *App, screen Screen) {
 func TestBoardListViewRendersAreasAndUnread(t *testing.T) {
 	st := boardTestStore(t)
 	cfg := config.Default()
-	app, u := boardTestApp(t, st, cfg)
+	app, _ := boardTestApp(t, st, cfg)
 	general, err := st.BoardAreaByTag("general")
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,8 @@ func TestBoardListViewRendersAreasAndUnread(t *testing.T) {
 		}
 	}
 
-	if _, err := app.Boards.CreateThread(context.Background(), u, general.ID,
+	other := boardOtherUser(t, st, "unread-seeder")
+	if _, err := app.Boards.CreateThread(context.Background(), other, general.ID,
 		"Unread seed", "hello"); err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
@@ -113,13 +114,18 @@ func TestThreadListViewRendersThreadsUnreadAndMarkers(t *testing.T) {
 	if _, err := app.Boards.Reply(ctx, u, thread.ID, "second post"); err != nil {
 		t.Fatalf("reply: %v", err)
 	}
+	// A post from someone else is what leaves this thread unread for u.
+	other := boardOtherUser(t, st, "thread-other")
+	if _, err := app.Boards.Reply(ctx, other, thread.ID, "third post"); err != nil {
+		t.Fatalf("other reply: %v", err)
+	}
 
 	arg := boardAreaArg{AreaID: general.ID, Tag: general.Tag, Name: general.Name}
 	screen := newThreadList(app, arg)
 	boardRun(t, app, screen)
 	view := screen.View(app)
 	for _, want := range []string{"[general] General", "Welcome thread",
-		"tui-user", "2 replies", "2 new", "S sticky", "L locked"} {
+		"tui-user", "3 replies", "1 new", "S sticky", "L locked"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("thread list view missing %q:\n%s", want, view)
 		}
@@ -170,4 +176,18 @@ func TestPostViewRendersSignatureAndMarksRead(t *testing.T) {
 	if total != 0 {
 		t.Fatalf("opening a thread left %d unread posts, want 0", total)
 	}
+}
+
+// boardOtherUser creates a second active account so tests can distinguish
+// "my own post" from "someone else's post" in unread counts.
+func boardOtherUser(t *testing.T, st *store.Store, handle string) *domain.User {
+	t.Helper()
+	u := &domain.User{
+		Handle: handle, Status: domain.StatusActive, Role: domain.RoleUser,
+		PassHash: "x", PassParams: "m=1,t=1,p=1", Prefs: domain.DefaultPrefs(),
+	}
+	if err := st.CreateUser(u); err != nil {
+		t.Fatalf("create %s: %v", handle, err)
+	}
+	return u
 }
