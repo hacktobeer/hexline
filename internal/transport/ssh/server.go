@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +58,7 @@ type Server struct {
 
 	active   atomic.Int64
 	total    atomic.Uint64
+	lastFree atomic.Int64
 	mu       sync.Mutex
 	perIP    map[string]int
 	ipSecret []byte
@@ -225,7 +227,10 @@ func (s *Server) runSession(sess ssh.Session) {
 	}
 	s.active.Add(1)
 	s.total.Add(1)
-	defer s.active.Add(-1)
+	defer func() {
+		s.active.Add(-1)
+		s.releaseMemoryWhenIdle()
+	}()
 
 	ctx := sess.Context()
 	user, err := s.sessionUser(ctx)
@@ -460,6 +465,25 @@ func (s *Server) releaseIP(ip string) {
 		return
 	}
 	s.perIP[host]--
+}
+
+// releaseMemoryWhenIdle returns freed heap to the OS once the board is empty.
+// Argon2 and per-session render buffers can leave a large footprint behind;
+// Go does not hand memory back promptly on its own. Rate-limited so churn
+// cannot trigger repeated collections.
+func (s *Server) releaseMemoryWhenIdle() {
+	if s.active.Load() != 0 {
+		return
+	}
+	now := time.Now().Unix()
+	last := s.lastFree.Load()
+	if now-last < 30 {
+		return
+	}
+	if s.lastFree.CompareAndSwap(last, now) {
+		debug.FreeOSMemory()
+		s.log.Debug("released idle heap")
+	}
 }
 
 func newSessionID() string {

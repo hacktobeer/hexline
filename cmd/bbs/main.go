@@ -91,6 +91,10 @@ func newRuntime(cfg *config.Config, log *slog.Logger) (*runtime, error) {
 			log.Warn("audit write failed", "action", e.Action, "err", err)
 		}
 	})
+	rt.auth.SetPasswordParams(service.PasswordParams{
+		Memory: cfg.Security.ArgonMemoryKiB, Time: cfg.Security.ArgonTime,
+		Threads: cfg.Security.ArgonThreads, KeyLen: 32,
+	}, cfg.Security.ArgonConcurrency)
 	rt.boards = service.NewBoards(st, cfg)
 	rt.mail = service.NewMail(st, cfg)
 	rt.files = service.NewFiles(st, cfg)

@@ -7,6 +7,32 @@ Companion to [`DESIGN.md`](./DESIGN.md) (v0.2). Forward-only, milestone-gated. E
 D2 no ZMODEM, no external doors — file transfer is `ssh bbs get` pipe + tokenized HTTP.
 D3 open registration with new-user probation (M1.3 + M5.8). D4 web mirror is v1.x, after release.
 
+## Implementation status (2026-11-15)
+
+| Milestone | State | Notes |
+| --- | --- | --- |
+| M0 Foundation | **done** | toolchain pinned to a patched 1.26.x, repo layout, config, slog, store+migrations, cobra CLI, CI, distroless image |
+| M1 Sessions/accounts/shell | **done** | SSH+host key, argon2id with configurable cost, throttling, registration, TUI shell, prefs, help, presence nodes |
+| M2 Message bases | **done** | areas/threads/posts, quoting, edit, soft delete, lock/sticky/move, unread math, FTS5 search, moderation with audit |
+| M3 Mail + files | **done** (minus HTTP URLs) | inbox/sent, read flags, thread keys, quota, blocklist; file upload/download via `ssh put`/`get`, SHA-256, ratings; tokenized HTTP download deferred to v1.x |
+| M4 Community | **done** | one-liners, polls, bulletins + dismissals, live chat (global/sysop, in-memory), who's-online |
+| M5 Sysop & ops | **done** | sysop CLI (area/filearea/bulletin/poll/ban/audit/stats/prune/broadcast), in-BBS menu, audit, backup, doctor, metrics, retention, probation promotion |
+| M6 Hardening | **partly** | e2e over real SSH + 100-session load run + `govulncheck` clean + fuzz/race/traversal tests are done; `gosec`/`golangci-lint` are wired in CI/Makefile but not installed in this environment; goreleaser not set up |
+
+Deviations worth reviewing:
+
+- File transfer is pipe-only (`ssh bbs put|get`); the tokenized HTTP download URL is v1.x.
+- Search filters by area only; author/date filters and snippet highlighting are not exposed in the UI.
+- Post editing is not limited to a grace window; moderators can edit any post in their area.
+- Mail has no archive/search; per-side soft delete covers the "delete" half of "delete/archive".
+- Chat history is in-memory per process; a restart clears scrollback (by design, no table).
+- `bbs admin broadcast` publishes to the calling process's broker, so it only reaches live sessions
+  when run inside `serve`; the in-BBS broadcast screen is the live path. A CLI→server bridge is a
+  v1.x candidate.
+- Metrics are opt-in and loopback-first; non-loopback binds log a warning.
+
+Not started (correctly): v1.x/web mirror, QWK, Postgres, TOTP/themes, ZMODEM, doors.
+
 **Ground rules**
 
 - Every task lands with tests, passes `go vet` + `golangci-lint` + race tests, and updates docs.
@@ -21,7 +47,7 @@ D3 open registration with new-user probation (M1.3 + M5.8). D4 web mirror is v1.
 
 | ID | Task | Acceptance | Est | Deps |
 | --- | --- | --- | --- | --- |
-| M0.1 | Bootstrap toolchain: install Go 1.25.x, `golangci-lint`, `govulncheck`; pin versions in `.tool-versions` + `Makefile`, pin Go module versions per DESIGN §4.3.1, start `docs/deps.md` | `go version`, `make lint` work from clean checkout; every module pinned with justification; pseudo-versions carry commit dates | 0.5 | — |
+| M0.1 | Bootstrap toolchain: install Go 1.26.x (patched), `golangci-lint`, `govulncheck`; pin versions in `.tool-versions` + `Makefile`, pin Go module versions per DESIGN §4.3.1, start `docs/deps.md` | `go version`, `make lint` work from clean checkout; every module pinned with justification; pseudo-versions carry commit dates | 0.5 | — |
 | M0.2 | Repo skeleton per DESIGN §4.2, `go.mod`, license, README, CONTRIBUTING, `.gitignore` | `go build ./...` green; package boundaries match layout | 0.5 | M0.1 |
 | M0.3 | Config package: TOML schema, env overlay, defaults, strict validation, `hexline.example.toml` | Table tests for valid/invalid configs; invalid key errors name key + fix; example file loads | 1 | M0.2 |
 | M0.4 | Logging: `slog` setup (text/json), levels, per-session correlation ID helper | Logs include `session_id`; secrets redacted (test) | 0.5 | M0.2 |

@@ -3,7 +3,7 @@
 A terminal-first Bulletin Board System in Go — SSH, message areas, file areas, mail,
 one-liners, chat. Single binary, SQLite, no interactive web UI.
 
-**Status:** v1.0 implementation in progress. Licensed Apache-2.0.
+**Status:** v1.0 implemented. Licensed Apache-2.0.
 
 ## Read this first
 
@@ -11,6 +11,16 @@ one-liners, chat. Single binary, SQLite, no interactive web UI.
   NFRs, risks, decisions (§11)
 - [`docs/TASKS.md`](docs/TASKS.md) — milestones M0–M6, task backlog with acceptance criteria,
   sequencing, v1.x stretch list
+
+## What works
+
+Message boards with threads, markup, unread tracking and FTS5 search · private mail with quotas and
+blocklists · file areas with pipe upload/download, checksums and ratings · oneliners, polls,
+bulletins and live chat · who's-online, last callers, sysop page · registration with probation ·
+moderation with per-area ACLs and an audit trail · sysop CLI and in-BBS menu · backups, migrations,
+metrics and retention pruning.
+
+Deliberately absent: telnet, ZMODEM, external doors, a web UI, QWK, Postgres (see DESIGN §3.3/§11).
 
 ## Quickstart
 
@@ -34,6 +44,18 @@ Drive it without a terminal:
 ssh -p 2222 sysop@127.0.0.1 whoami
 ssh -p 2222 sysop@127.0.0.1 get UPLOADS/notes.txt > notes.txt
 ```
+
+## Verify
+
+```sh
+make check                 # gofmt + vet + full test suite
+go test -race ./internal/...   # concurrency-sensitive packages
+go test ./internal/render -run '^$' -fuzz FuzzSanitize -fuzztime 30s
+```
+
+The tests include a cross-service caller journey (`internal/integration`), real SSH client
+end-to-end tests (`internal/transport/ssh`), a traversal corpus for uploads, and screen-render
+assertions. `cmd/loadgen` measures session and keystroke latency against a live board.
 
 ## Documentation
 

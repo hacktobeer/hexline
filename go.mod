@@ -2,12 +2,15 @@ module github.com/hacktobeer/hexline
 
 go 1.26.0
 
+toolchain go1.26.11
+
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/oklog/ulid/v2 v2.1.2
+	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.59.0
 	golang.org/x/text v0.44.0
 	modernc.org/sqlite v1.62.0
@@ -23,7 +26,6 @@ require (
 	github.com/creack/pty v1.1.21 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 )
 

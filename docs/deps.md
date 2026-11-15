@@ -1,5 +1,8 @@
 # Dependencies
 
+Toolchain: `go 1.25` minimum, `toolchain go1.26.11` pinned. `govulncheck ./...` reports no
+reachable vulnerabilities with this toolchain; CI re-runs it.
+
 Policy: every module is pinned, reviewed, and earns its place. No module may phone home at
 runtime. Add a row here when you add a dependency.
 

@@ -25,6 +25,14 @@ files_dir = "files"
 max_upload_bytes = 67108864       # 64 MiB
 # allowed_ext = ["zip", "txt", "ans"]   # empty means allow everything except blocked names
 
+# argon2id credential hashing. Peak memory is roughly
+# argon_concurrency * argon_memory_kib; lower the memory for small hosts.
+[security]
+argon_memory_kib = 32768     # 32 MiB; raise to 65536 on a big host
+argon_time = 3
+argon_threads = 2
+argon_concurrency = 2
+
 [limits]
 post_max_bytes = 32768
 post_rate_per_hour = 30

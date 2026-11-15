@@ -55,6 +55,15 @@ func NewAuth(st *store.Store, cfg *config.Config, audit func(domain.AuditEntry))
 // SetClock replaces the clock (tests).
 func (a *Auth) SetClock(fn func() time.Time) { a.now = fn }
 
+// SetPasswordParams replaces the cost profile and hash concurrency. Call it
+// once at boot, before serving.
+func (a *Auth) SetPasswordParams(p PasswordParams, concurrency int) {
+	if p.KeyLen == 0 {
+		p.KeyLen = 32
+	}
+	a.hasher = NewPasswordHasher(p, concurrency)
+}
+
 // Hasher exposes the password hasher (admin CLI uses it).
 func (a *Auth) Hasher() *PasswordHasher { return a.hasher }
 

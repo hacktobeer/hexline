@@ -24,6 +24,7 @@ type Config struct {
 	UI           UI           `toml:"ui"`
 	Probation    Probation    `toml:"probation"`
 	Registration Registration `toml:"registration"`
+	Security     Security     `toml:"security"`
 }
 
 // Server holds process-wide settings.
@@ -102,6 +103,15 @@ type Probation struct {
 	Posts int `toml:"posts"`
 }
 
+// Security tunes credential hashing. Argon2id is memory-hard; the concurrency
+// cap bounds peak memory at ArgonConcurrency * ArgonMemoryKiB.
+type Security struct {
+	ArgonMemoryKiB   uint32 `toml:"argon_memory_kib"`
+	ArgonTime        uint32 `toml:"argon_time"`
+	ArgonThreads     uint8  `toml:"argon_threads"`
+	ArgonConcurrency int    `toml:"argon_concurrency"`
+}
+
 // Registration configures account creation (D3).
 type Registration struct {
 	Open bool `toml:"open"`
@@ -141,6 +151,9 @@ func Default() *Config {
 		UI:           UI{ServerName: "hexline", DefaultWidth: 80, DefaultRows: 24},
 		Probation:    Probation{Days: 3, Posts: 10},
 		Registration: Registration{Open: true},
+		Security: Security{
+			ArgonMemoryKiB: 32 * 1024, ArgonTime: 3, ArgonThreads: 2, ArgonConcurrency: 2,
+		},
 	}
 }
 
@@ -241,6 +254,12 @@ func applyEnv(c *Config) {
 	boolean("HEXLINE_REGISTRATION_OPEN", &c.Registration.Open)
 	num("HEXLINE_PROBATION_DAYS", &c.Probation.Days)
 	num("HEXLINE_PROBATION_POSTS", &c.Probation.Posts)
+	if v, ok := os.LookupEnv("HEXLINE_ARGON_MEMORY_KIB"); ok {
+		if n, err := strconv.ParseUint(strings.TrimSpace(v), 10, 32); err == nil {
+			c.Security.ArgonMemoryKiB = uint32(n)
+		}
+	}
+	num("HEXLINE_ARGON_CONCURRENCY", &c.Security.ArgonConcurrency)
 }
 
 // Validate returns actionable, key-scoped errors.
@@ -281,6 +300,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Limits.LoginWindow <= 0 {
 		errs = append(errs, "limits.login_window: must be > 0")
+	}
+	if c.Security.ArgonMemoryKiB < 8*1024 {
+		errs = append(errs, "security.argon_memory_kib: must be at least 8192 (8 MiB)")
+	}
+	if c.Security.ArgonTime < 1 {
+		errs = append(errs, "security.argon_time: must be >= 1")
+	}
+	if c.Security.ArgonThreads < 1 {
+		errs = append(errs, "security.argon_threads: must be >= 1")
+	}
+	if c.Security.ArgonConcurrency < 1 {
+		errs = append(errs, "security.argon_concurrency: must be >= 1")
 	}
 	if c.Probation.Days < 0 || c.Probation.Posts < 0 {
 		errs = append(errs, "probation.days/probation.posts: must be >= 0")

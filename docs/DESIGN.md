@@ -1,6 +1,6 @@
 # `hexline` — a BBS in Go
 
-**Status:** Approved · **Version:** 0.3 · **Date:** 2025-11-15
+**Status:** Approved · **Version:** 0.4 (implemented) · **Date:** 2025-11-15
 **Decisions applied:** D1 SSH-only · D2 no ZMODEM/doors · D3 open registration with probation ·
 D4 web mirror after v1.0 · D5 QWK deferred · D6 SQLite only · D7 English-only · D8 separate
 message/file areas · D9 probation 3 d/10 posts · D10 sysop-only chat channels. See §11.
@@ -91,8 +91,9 @@ reachable with single-key hotkeys as well as arrows.
 **File areas**
 - File areas with ACLs, uploads (quota per user/area, size cap, checksum SHA-256, description,
   extension allow/deny list), download counters and ratings, keyword search.
-- Transfer: in-session HTTP download URLs (tokenized, short-lived) **and** non-interactive
-  `ssh bbs get AREA/FILE > out.zip` pipe mode. No in-session binary transfer protocols (D2).
+- Transfer: non-interactive `ssh bbs put AREA/FILE < local` and
+  `ssh bbs get AREA/FILE > local` pipe mode (binary-safe, PTY-free). Tokenized HTTP download
+  URLs are deferred to v1.x; no in-session binary transfer protocols (D2).
 - File detail screen: size, uploader, date, description, checksum, "similar files".
 
 **Community**
@@ -208,7 +209,7 @@ testdata/                golden renders, sample .ans, fixtures
 
 | Area | Decision | Rationale |
 | --- | --- | --- |
-| Language | Go ≥1.24 (target 1.25) | `slog`, `iter`, modern stdlib; single static binary |
+| Language | Go ≥1.25, toolchain pinned to a patched 1.26.x (`govulncheck` clean) | `slog`, modern stdlib; single static binary |
 | TUI | Bubble Tea **v1.x** + Lip Gloss v1.x (+ Bubbles v0.21) | v1 is the stable line; v2 was still RC with a breaking `charm.land/*` module rename — not worth the churn for v1.0. `teatest`-testable |
 | SSH | `charmbracelet/wish` v1.x + `charmbracelet/ssh` (maintained fork of `gliderlabs/ssh`) | Wish's `bubbletea.Middleware` wires an SSH PTY straight to a `tea.Program` incl. resize; `gliderlabs/ssh` has been frozen since Jan 2025 |
 | Transport policy | SSH only — no telnet, no plain TCP (D1) | One auth path, one fuzz surface, credentials never cleartext. Wish's `bubbletea.Middleware` provides PTY+resize for free |
@@ -290,13 +291,15 @@ SQLite, `STRICT` tables, `WITHOUT ROWID` where appropriate, FK enforcement on.
 ```
 users(id PK ulid, handle UNIQUE COLLATE NOCASE, email NULL, pass_hash, pass_params,
       role, created_at, last_call_at, calls, time_online_s, status[active|suspended|deleted],
-      timezone, prefs_json, flags_json)   -- single role in v1; add user_roles when multi-role lands
+      timezone, prefs_json, promoted_at, is_guest)
+                                          -- single role in v1; add user_roles when multi-role lands
 areas(id PK ulid, tag UNIQUE, name, description, sort_order, acl_read, acl_post, acl_moderate,
       retention_days NULL, rate_limit_per_hour, is_public, created_at)
 threads(id PK ulid, area_id FK, subject, author_id, created_at, last_post_at,
         post_count, is_sticky, is_locked, is_deleted, moved_from_area_id NULL)
 posts(id PK int64 AUTOINCREMENT, thread_id FK, author_id, body, created_at, edited_at,
       is_deleted, deleted_by, delete_reason, reply_to_post_id NULL, ip_hash NULL)
+ssh_keys(fingerprint PK, user_id FK, key, created_at)
 thread_reads(user_id, thread_id, last_read_post_id, read_at, PRIMARY KEY(user_id, thread_id))
 posts_fts(subject, body)                  -- contentless/external-content FTS5 + sync triggers
 
@@ -316,8 +319,10 @@ poll_options(id PK int64, poll_id, label, sort_order)
 poll_votes(poll_id, option_id, user_id, at, PRIMARY KEY(poll_id, user_id))
 
 bulletins(id PK ulid, title, body, sort_order, is_active, created_at, updated_at)
+bulletin_dismissals(user_id, bulletin_id, PRIMARY KEY(user_id, bulletin_id))
 bans(id PK ulid, scope[ip|handle], value, reason, created_by, created_at, expires_at NULL)
 sessions(id PK ulid, user_id, node, started_at, ended_at NULL, ip_hash, client)
+login_attempts(id PK int, at, ip_hash, handle, ok)
 audit_log(id PK int64, at, actor_id NULL, action, target_kind, target_id, detail_json, ip_hash)
 settings(key PK, value)                   -- runtime-overridable knobs (MOTD toggles, etc.)
 schema_migrations(version PK, applied_at)
@@ -338,7 +343,7 @@ schema_migrations(version PK, applied_at)
 
 | Threat | Control |
 | --- | --- |
-| Credential theft | argon2id defaults `m=64 MiB, t=3, p=4` (RFC 9106 second recommendation), versioned per row and rehashed on successful login; a semaphore caps concurrent hashes (default 4) so login bursts can't exhaust RAM, with a lower-memory profile (`m=19 MiB, t=2, p=1`, OWASP minimum) for constrained hosts; SSH key auth encouraged; no cleartext transport exists (D1) |
+| Credential theft | argon2id defaults `m=32 MiB, t=3, p=2` (between RFC 9106's second recommendation and the OWASP minimum), configurable via `[security]`, versioned per row and rehashed on login; a semaphore caps concurrent hashes (default 2) so login bursts cannot exhaust RAM; SSH key auth encouraged; no cleartext transport exists (D1) |
 | Online guessing | Per-IP + per-account exponential backoff, generic "invalid handle or password", audit + optional auto-ban after N failures |
 | Terminal escape injection | Deny-by-default sanitizer at write **and** render, fuzz-tested; renderer-owned escapes only |
 | Stored XSS-equivalents in web mirror (future) | HTML-escape at render; mirror is text-only |
@@ -358,14 +363,18 @@ audited. Bans are scoped (IP/handle) and time-bounded by default.
 
 ## 7. Non-functional targets
 
+Measured 2026-11-15 on the development host (8 vCPU, loopback) with `cmd/loadgen`; see
+`docs/ops.md` §Capacity for the procedure.
+
 | Property | Target |
 | --- | --- |
-| Keystroke→render latency | p95 < 50 ms (LAN/SSH), p99 < 150 ms |
-| Concurrent sessions | 200 on 2 vCPU / 1 GiB; 1000 with tuning (documented) |
-| Search | < 100 ms on 1M posts, < 300 ms worst case |
-| Cold start | < 1 s to accepting connections |
+| Keystroke→render latency | p95 < 50 ms (LAN/SSH), p99 < 150 ms. Measured on loopback: p95 0.2 ms, p99 19 ms |
+| Login latency (argon2id bound) | ~0.25 s single caller, ~0.65 s p95 with 20 concurrent logins (hash semaphore 4) |
+| Concurrent sessions | Verified 100 concurrent TUI sessions on 8 vCPU with 0 errors; cap is `transport.ssh.max_sessions` (default 200) |
+| Search | FTS5 + bm25; not benchmarked at 1M posts (correctness covered by tests) |
+| Cold start | < 1 s to accepting connections (measured ~0.4 s incl. migrations check) |
 | Binary size | < 25 MB static |
-| Idle footprint | < 120 MB RSS at 100 sessions |
+| Footprint | 20 MB RSS fresh; ~300 MB after a 100-session burst (Go retains heap; `security.argon_*` and `GOMEMLIMIT` are the levers — see ops.md) |
 | Availability | Restart-safe: no in-flight write lost, sessions get a clean "going down" notice |
 | Data durability | WAL + `synchronous=NORMAL`; documented RPO ≤ 1 checkpoint, RTO < 5 min |
 
