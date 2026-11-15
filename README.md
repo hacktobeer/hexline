@@ -12,6 +12,35 @@ one-liners, chat. Single binary, SQLite, no interactive web UI.
 - [`docs/TASKS.md`](docs/TASKS.md) — milestones M0–M6, task backlog with acceptance criteria,
   sequencing, v1.x stretch list
 
+## Quickstart
+
+```sh
+make build
+export HEXLINE_DATA_DIR=$PWD/data
+
+./bbs migrate
+./bbs admin user create --handle sysop --role sysop   # prints a generated password
+./bbs serve
+
+# in another terminal
+ssh -p 2222 sysop@127.0.0.1
+```
+
+Requires Go 1.24+. No Node, no database server, no cgo.
+
+Drive it without a terminal:
+
+```sh
+ssh -p 2222 sysop@127.0.0.1 whoami
+ssh -p 2222 sysop@127.0.0.1 get UPLOADS/notes.txt > notes.txt
+```
+
+## Documentation
+
+- [`docs/ops.md`](docs/ops.md) — install, systemd, backup/restore, upgrades, monitoring, troubleshooting
+- [`docs/moderation.md`](docs/moderation.md) — moderator and sysop workflows, audit log
+- [`docs/deps.md`](docs/deps.md) — every dependency and why it exists
+
 ## Decisions so far
 
 | | |
