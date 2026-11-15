@@ -50,27 +50,14 @@ const (
 	StatusDeleted   Status = "deleted"
 )
 
-// Prefs are per-user presentation settings.
+// Prefs are per-user presentation settings. ANSI is the only one that changes
+// rendering; terminal width always comes from the real terminal.
 type Prefs struct {
-	Width int  `json:"width"`
-	ANSI  bool `json:"ansi"`
-	CP437 bool `json:"cp437"`
-	Pager bool `json:"pager"`
+	ANSI bool `json:"ansi"`
 }
 
-// DefaultPrefs returns 80-column ANSI on.
-func DefaultPrefs() Prefs { return Prefs{Width: 80, ANSI: true, CP437: true, Pager: true} }
-
-// Normalize clamps prefs to usable values.
-func (p Prefs) Normalize() Prefs {
-	if p.Width < 40 {
-		p.Width = 80
-	}
-	if p.Width > 400 {
-		p.Width = 400
-	}
-	return p
-}
+// DefaultPrefs returns colour output on.
+func DefaultPrefs() Prefs { return Prefs{ANSI: true} }
 
 // User is an account.
 type User struct {

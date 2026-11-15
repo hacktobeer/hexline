@@ -246,7 +246,7 @@ func (a *Auth) UpdateProfile(ctx context.Context, u *domain.User) error {
 
 // UpdatePrefs saves presentation preferences.
 func (a *Auth) UpdatePrefs(ctx context.Context, u *domain.User, p domain.Prefs) error {
-	return a.store.UpdateUserPrefs(u.ID, p.Normalize())
+	return a.store.UpdateUserPrefs(u.ID, p)
 }
 
 // RecordLogin stores call statistics at disconnect.

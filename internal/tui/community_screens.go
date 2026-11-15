@@ -764,10 +764,10 @@ func (s *bulletinScreen) reload(a *App) {
 
 func (s *bulletinScreen) loadCurrent(a *App) {
 	if s.idx < 0 || s.idx >= len(s.items) {
-		s.pager.SetText("", a.W-2)
+		s.pager.SetText("", a.W-2, a.ANSI())
 		return
 	}
-	s.pager.SetText(s.items[s.idx].Body, a.W-2)
+	s.pager.SetText(s.items[s.idx].Body, a.W-2, a.ANSI())
 }
 
 func (s *bulletinScreen) Init(a *App) tea.Cmd { return nil }

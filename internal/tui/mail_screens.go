@@ -536,7 +536,7 @@ func (v *mailView) Update(a *App, msg tea.Msg) tea.Cmd {
 		if sig := strings.TrimSpace(msg.sig); sig != "" {
 			text = strings.TrimRight(text, "\n") + "\n\n  -- \n" + sig
 		}
-		v.pager.SetText(text, max(20, a.W-2))
+		v.pager.SetText(text, max(20, a.W-2), a.ANSI())
 		return nil
 	case mailDeletedMsg:
 		if msg.err != nil {

@@ -135,9 +135,10 @@ type pager struct {
 	top   int
 }
 
-// SetText wraps text to width and resets the scroll position.
-func (p *pager) SetText(text string, width int) {
-	text = render.Render(text, render.Options{Width: width, ANSI: true})
+// SetText wraps text to width and resets the scroll position. ansi follows the
+// caller's preference; the renderer never emits escapes when it is false.
+func (p *pager) SetText(text string, width int, ansi bool) {
+	text = render.Render(text, render.Options{Width: width, ANSI: ansi})
 	p.lines = strings.Split(strings.TrimRight(text, "\n"), "\n")
 	if len(p.lines) == 1 && p.lines[0] == "" {
 		p.lines = nil

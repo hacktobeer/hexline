@@ -152,7 +152,7 @@ func (m *mainMenu) View(a *App) string {
 		motd = "No MOTD set. Posterity is watching — post something worth reading."
 	}
 	b.WriteString(styleDim.Render("── today ──") + "\n")
-	b.WriteString(render.Render(motd, render.Options{Width: w - 2, ANSI: true}))
+	b.WriteString(render.Render(motd, render.Options{Width: w - 2, ANSI: a.ANSI()}))
 
 	return b.String()
 }

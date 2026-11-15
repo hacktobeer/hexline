@@ -23,7 +23,7 @@ type profileScreen struct {
 
 func newProfileScreen(a *App, _ any) Screen {
 	u := a.User()
-	p := &profileScreen{BaseScreen: BaseScreen{Route: RouteProfile, TitleText: "Settings", Hints: "tab next  ctrl+s save  w width  a ansi  p password  esc back"}}
+	p := &profileScreen{BaseScreen: BaseScreen{Route: RouteProfile, TitleText: "Settings", Hints: "tab next  ctrl+s save  a ansi  p password  esc back"}}
 	if u == nil {
 		return p
 	}
@@ -88,25 +88,6 @@ func (p *profileScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 		p.saved = true
 		p.err = ""
 		return nil
-	case "w":
-		widths := []int{40, 80, 100, 132}
-		next := widths[0]
-		for i, w := range widths {
-			if u.Prefs.Width == w {
-				next = widths[(i+1)%len(widths)]
-				break
-			}
-		}
-		u.Prefs.Width = next
-		if err := a.Auth.UpdatePrefs(context.Background(), u, u.Prefs); err != nil {
-			return a.Errorf(err, "save prefs")
-		}
-		a.W = a.Cfg.UI.DefaultWidth
-		if a.W < 80 {
-			a.W = 80
-		}
-		a.Flash("preferred width %d (terminal size still wins)", next)
-		return nil
 	case "a":
 		u.Prefs.ANSI = !u.Prefs.ANSI
 		if err := a.Auth.UpdatePrefs(context.Background(), u, u.Prefs); err != nil {
@@ -157,10 +138,8 @@ func (p *profileScreen) View(a *App) string {
 		b.WriteString(LabeledInput(labels[i], f) + "\n")
 	}
 	b.WriteString(styleDim.Render("Signature") + "\n" + p.sig.View() + "\n")
-	b.WriteString(styleDim.Render("Terminal") + ": width " + itoa(u.Prefs.Width) +
-		"  ANSI " + map[bool]string{true: "on", false: "off"}[u.Prefs.ANSI] +
-		"  CP437 " + map[bool]string{true: "on", false: "off"}[u.Prefs.CP437] +
-		"   (w cycles width, a toggles ANSI)\n")
+	b.WriteString(styleDim.Render("Colour") + ": " +
+		map[bool]string{true: "on", false: "off"}[u.Prefs.ANSI] + "   (a toggles)\n")
 	if p.err != "" {
 		b.WriteString("\n" + styleWarn.Render(render.Clip("! "+p.err, w-2)) + "\n")
 	}

@@ -378,7 +378,7 @@ func (s *fileDetailScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 		s.rating = false
 		s.rateErr = ""
 		if m.file != nil && m.file.Description != "" {
-			s.desc.SetText(m.file.Description, max(20, a.W-2))
+			s.desc.SetText(m.file.Description, max(20, a.W-2), a.ANSI())
 		}
 		return nil
 	case filesRateMsg:

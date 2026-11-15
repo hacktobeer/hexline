@@ -311,6 +311,15 @@ func (a *App) IsModerator() bool {
 	return u != nil && u.Role.AtLeast(domain.RoleModerator)
 }
 
+// ANSI reports whether the caller wants colour output.
+func (a *App) ANSI() bool {
+	u := a.User()
+	if u == nil {
+		return true
+	}
+	return u.Prefs.ANSI
+}
+
 // CanWrite reports whether the current session may create content.
 func (a *App) CanWrite() bool {
 	if a.Sess.ReadOnly {

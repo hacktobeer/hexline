@@ -34,7 +34,6 @@ func scanUser(sc interface{ Scan(...any) error }) (*domain.User, error) {
 			return nil, fmt.Errorf("store: user prefs: %w", err)
 		}
 	}
-	u.Prefs = u.Prefs.Normalize()
 	return &u, nil
 }
 
@@ -55,7 +54,6 @@ func (s *Store) CreateUser(u *domain.User) error {
 	if u.Timezone == "" {
 		u.Timezone = "UTC"
 	}
-	u.Prefs = u.Prefs.Normalize()
 	prefs, err := json.Marshal(u.Prefs)
 	if err != nil {
 		return err
@@ -132,7 +130,7 @@ func (s *Store) UpdateUserProfile(u *domain.User) error {
 
 // UpdateUserPrefs persists presentation preferences.
 func (s *Store) UpdateUserPrefs(id string, p domain.Prefs) error {
-	raw, err := json.Marshal(p.Normalize())
+	raw, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}

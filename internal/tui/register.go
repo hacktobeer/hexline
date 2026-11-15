@@ -93,7 +93,9 @@ func (r *registerScreen) submit(a *App) tea.Cmd {
 	a.Sess.PendingHandle = ""
 	a.Sess.PendingPassword = ""
 	a.Flash("Welcome aboard, %s. Your account is on probation until 3 days and 10 posts.", u.Handle)
-	return func() tea.Msg { return NavigateMsg{Route: RouteMain} }
+	// Replace, not push: esc from the menu must not return to a form whose
+	// password was already consumed.
+	return a.Replace(RouteMain, nil)
 }
 
 func (r *registerScreen) View(a *App) string {

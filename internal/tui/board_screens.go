@@ -783,7 +783,7 @@ func (s *postViewScreen) preparePost(a *App) {
 	s.prepared = true
 	p := s.currentPost()
 	if p == nil {
-		s.pg.SetText("", a.W-2)
+		s.pg.SetText("", a.W-2, a.ANSI())
 		return
 	}
 	body := p.Body
@@ -793,7 +793,7 @@ func (s *postViewScreen) preparePost(a *App) {
 	if sig := s.sigs[p.AuthorID]; sig != "" && !p.Deleted {
 		body = strings.TrimRight(body, "\n") + "\n\n-- \n" + sig
 	}
-	s.pg.SetText(body, a.W-2)
+	s.pg.SetText(body, a.W-2, a.ANSI())
 }
 
 func (s *postViewScreen) keyHints() string {
@@ -1061,7 +1061,7 @@ func (c *composeScreen) View(a *App) string {
 	b.WriteString("\n")
 	if c.preview {
 		b.WriteString(styleDim.Render("preview") + "\n")
-		preview := render.Render(c.body.Value(), render.Options{Width: w - 4, ANSI: true})
+		preview := render.Render(c.body.Value(), render.Options{Width: w - 4, ANSI: a.ANSI()})
 		if strings.TrimSpace(preview) == "" {
 			preview = styleDim.Render("(empty message)")
 		}
