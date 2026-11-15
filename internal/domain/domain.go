@@ -92,6 +92,13 @@ type User struct {
 	Prefs      Prefs
 	SSHKeys    []string
 	PromotedAt time.Time
+	IsGuest    bool
+}
+
+// CanWrite reports whether the account may create content. Guests and
+// suspended/deleted accounts cannot.
+func (u *User) CanWrite() bool {
+	return !u.IsGuest && (u.Status == StatusActive || u.Status == StatusProbation)
 }
 
 // IsProbation reports whether the account is still on probation (D3).
@@ -361,15 +368,24 @@ var reservedHandles = map[string]bool{
 
 // ValidateHandle checks length, charset and reserved names.
 func ValidateHandle(h string) error {
+	if err := ValidateHandleShape(h); err != nil {
+		return err
+	}
+	if reservedHandles[strings.ToLower(strings.TrimSpace(h))] {
+		return fmt.Errorf("%w: handle %q is reserved", ErrInvalid, h)
+	}
+	return nil
+}
+
+// ValidateHandleShape checks length and charset, allowing reserved names.
+// Only the sysop CLI may use this.
+func ValidateHandleShape(h string) error {
 	h = strings.TrimSpace(h)
 	if h == "" {
 		return fmt.Errorf("%w: handle is required", ErrInvalid)
 	}
 	if !handleRe.MatchString(h) {
 		return fmt.Errorf("%w: handle must be 2-20 chars, start with a letter, and use letters, digits, _ . -", ErrInvalid)
-	}
-	if reservedHandles[strings.ToLower(h)] {
-		return fmt.Errorf("%w: handle %q is reserved", ErrInvalid, h)
 	}
 	return nil
 }

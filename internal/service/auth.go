@@ -61,6 +61,8 @@ type RegisterRequest struct {
 	Timezone    string
 	IPHash      string
 	AllowClosed bool // sysop override: bypass registration.open
+	// AllowReserved lets the sysop CLI create handles like "sysop".
+	AllowReserved bool
 }
 
 // Authenticate verifies credentials. Unknown handles return domain.ErrNotFound
@@ -108,7 +110,11 @@ func (a *Auth) Register(ctx context.Context, req RegisterRequest) (*domain.User,
 	if !a.cfg.Registration.Open && !req.AllowClosed {
 		return nil, fmt.Errorf("%w: registration is closed", domain.ErrPermission)
 	}
-	if err := domain.ValidateHandle(req.Handle); err != nil {
+	if req.AllowReserved {
+		if err := domain.ValidateHandleShape(req.Handle); err != nil {
+			return nil, err
+		}
+	} else if err := domain.ValidateHandle(req.Handle); err != nil {
 		return nil, err
 	}
 	if err := domain.ValidatePassword(req.Password); err != nil {

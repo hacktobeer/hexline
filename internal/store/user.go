@@ -10,15 +10,16 @@ import (
 )
 
 const userCols = `id, handle, email, real_name, location, signature, timezone, role, status,
-	created_at, last_call_at, calls, time_online_s, pass_hash, pass_params, prefs_json, promoted_at`
+	created_at, last_call_at, calls, time_online_s, pass_hash, pass_params, prefs_json, promoted_at, is_guest`
 
 func scanUser(sc interface{ Scan(...any) error }) (*domain.User, error) {
 	var u domain.User
 	var createdAt, lastCallAt, timeOnline, promotedAt int64
 	var prefsJSON string
+	var guest int
 	err := sc.Scan(&u.ID, &u.Handle, &u.Email, &u.RealName, &u.Location, &u.Signature,
 		&u.Timezone, &u.Role, &u.Status, &createdAt, &lastCallAt, &u.Calls, &timeOnline,
-		&u.PassHash, &u.PassParams, &prefsJSON, &promotedAt)
+		&u.PassHash, &u.PassParams, &prefsJSON, &promotedAt, &guest)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -26,6 +27,7 @@ func scanUser(sc interface{ Scan(...any) error }) (*domain.User, error) {
 	u.LastCallAt = fromTS(lastCallAt)
 	u.TimeOnline = time.Duration(timeOnline) * time.Second
 	u.PromotedAt = fromTS(promotedAt)
+	u.IsGuest = guest == 1
 	u.Prefs = domain.DefaultPrefs()
 	if prefsJSON != "" && prefsJSON != "{}" {
 		if err := json.Unmarshal([]byte(prefsJSON), &u.Prefs); err != nil {
@@ -59,10 +61,11 @@ func (s *Store) CreateUser(u *domain.User) error {
 		return err
 	}
 	_, err = s.db.Exec(`INSERT INTO users(`+userCols+`) VALUES
-		(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		u.ID, u.Handle, u.Email, u.RealName, u.Location, u.Signature, u.Timezone,
 		u.Role, u.Status, ts(u.CreatedAt), ts(u.LastCallAt), u.Calls,
-		int64(u.TimeOnline.Seconds()), u.PassHash, u.PassParams, string(prefs), ts(u.PromotedAt))
+		int64(u.TimeOnline.Seconds()), u.PassHash, u.PassParams, string(prefs), ts(u.PromotedAt),
+		boolInt(u.IsGuest))
 	if err != nil {
 		if isUniqueErr(err) {
 			return fmt.Errorf("%w: handle %q is taken", domain.ErrConflict, u.Handle)

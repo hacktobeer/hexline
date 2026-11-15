@@ -148,17 +148,8 @@ func Default() *Config {
 // overrides, then validates.
 func Load(path string) (*Config, error) {
 	cfg := Default()
-	if path != "" {
-		md, err := toml.DecodeFile(path, cfg)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("config %s: file not found", path)
-			}
-			return nil, fmt.Errorf("config %s: %w", path, err)
-		}
-		if undecoded := md.Undecoded(); len(undecoded) > 0 {
-			return nil, fmt.Errorf("config %s: unknown keys: %v", path, undecoded)
-		}
+	if err := decodeFile(path, cfg); err != nil {
+		return nil, err
 	}
 	applyEnv(cfg)
 	if err := cfg.Validate(); err != nil {
@@ -167,16 +158,34 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// LoadOrDefault loads path when set, otherwise returns validated defaults.
+func decodeFile(path string, cfg *Config) error {
+	md, err := toml.DecodeFile(path, cfg)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("config %s: file not found", path)
+		}
+		return fmt.Errorf("config %s: %w", path, err)
+	}
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		return fmt.Errorf("config %s: unknown keys: %v", path, undecoded)
+	}
+	return nil
+}
+
+// LoadOrDefault loads path when it exists, otherwise uses defaults. In both
+// cases HEXLINE_* environment overrides are applied and validated.
 func LoadOrDefault(path string) (*Config, error) {
 	cfg := Default()
 	if path != "" {
 		if _, err := os.Stat(path); err == nil {
-			return Load(path)
+			if err := decodeFile(path, cfg); err != nil {
+				return nil, err
+			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 	}
+	applyEnv(cfg)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}

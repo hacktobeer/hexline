@@ -68,3 +68,23 @@ func (s *Store) PruneAudit(cutoff time.Time) (int64, error) {
 	}
 	return res.RowsAffected()
 }
+
+// StartSession records a live session row.
+func (s *Store) StartSession(id, userID string, node int, ipHash, client string) error {
+	_, err := s.db.Exec(`INSERT INTO sessions(id, user_id, node, started_at, ip_hash, client)
+		VALUES (?, ?, ?, ?, ?, ?)`, id, nullString(userID), node, time.Now().Unix(), ipHash, client)
+	return err
+}
+
+// EndSession marks a session finished.
+func (s *Store) EndSession(id string) error {
+	_, err := s.db.Exec(`UPDATE sessions SET ended_at = ? WHERE id = ?`, time.Now().Unix(), id)
+	return err
+}
+
+func nullString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}

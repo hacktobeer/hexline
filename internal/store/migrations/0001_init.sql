@@ -18,7 +18,8 @@ CREATE TABLE users (
     pass_hash     TEXT NOT NULL,
     pass_params   TEXT NOT NULL,
     prefs_json    TEXT NOT NULL DEFAULT '{}',
-    promoted_at   INTEGER NOT NULL DEFAULT 0
+    promoted_at   INTEGER NOT NULL DEFAULT 0,
+    is_guest      INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE TABLE ssh_keys (
