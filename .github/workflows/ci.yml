@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal)" || (gofmt -l cmd internal; exit 1)
+      - name: vet
+        run: go vet ./...
+      - name: test (race)
+        run: go test -race ./...
+      - name: fuzz smoke (sanitizer)
+        run: go test ./internal/render -run '^$' -fuzz FuzzSanitize -fuzztime 20s
+      - name: build static
+        run: CGO_ENABLED=0 go build -trimpath -o /tmp/bbs ./cmd/bbs
+      - name: build arm64
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/bbs-arm64 ./cmd/bbs
+      - name: docker build
+        run: docker build -t hexline:ci .

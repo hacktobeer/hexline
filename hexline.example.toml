@@ -1,0 +1,70 @@
+# hexline configuration. Copy to hexline.toml and edit.
+# Every key can also be set with HEXLINE_* environment variables (see docs/ops.md).
+
+[server]
+name = "hexline"
+# Root for the database, host key, uploads and backups.
+data_dir = "./data"
+
+[transport.ssh]
+# SSH is the only transport (D1).
+address = ":2222"
+host_key_path = "host_ed25519"   # relative to data_dir, generated 0600 on first run
+max_sessions = 200
+max_per_ip = 8
+idle_timeout = "15m"
+allow_pubkey = true
+banner_text = "hexline BBS — press enter, then log in with your handle"
+
+[database]
+# Relative paths resolve against server.data_dir.
+path = "hexline.db"
+
+[storage]
+files_dir = "files"
+max_upload_bytes = 67108864       # 64 MiB
+# allowed_ext = ["zip", "txt", "ans"]   # empty means allow everything except blocked names
+
+[limits]
+post_max_bytes = 32768
+post_rate_per_hour = 30
+mail_quota = 200
+upload_quota_bytes = 536870912    # 512 MiB total per user
+login_attempts = 10
+login_window = "15m"
+chat_rate_per_minute = 30
+max_body_lines = 1000
+max_signature_lines = 4
+
+# Zero disables a category.
+[retention]
+sessions_days = 90
+audit_days = 365
+oneliner_days = 30
+deleted_posts_days = 30
+
+[metrics]
+# Off by default. Bind loopback only.
+enabled = false
+address = "127.0.0.1:9101"
+
+[ui]
+server_name = "hexline"
+default_width = 80
+default_rows = 24
+motd = """
+Welcome to hexline.
+
+Be excellent to each other. New callers are on probation until 3 days and
+10 posts — a moderator can promote you early. Type ? for help.
+"""
+
+# D3: open registration with probation. Set open = false for invite-only,
+# then create accounts with `bbs admin user create`.
+[registration]
+open = true
+
+# D9: probation ends at both thresholds; moderators can promote early.
+[probation]
+days = 3
+posts = 10
