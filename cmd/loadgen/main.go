@@ -37,11 +37,13 @@ func main() {
 
 	deadline := time.Now().Add(*duration)
 	var (
-		mu   sync.Mutex
-		lat  []time.Duration
-		errs int
-		ops  int
-		wg   sync.WaitGroup
+		mu      sync.Mutex
+		lat     []time.Duration
+		keyLat  []time.Duration
+		errs    int
+		ops     int
+		samples []string
+		wg      sync.WaitGroup
 	)
 	for i := 0; i < *sessions; i++ {
 		wg.Add(1)
@@ -49,11 +51,17 @@ func main() {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				start := time.Now()
-				err := op(*addr, cfg, *mode)
+				key, err := op(*addr, cfg, *mode)
 				d := time.Since(start)
 				mu.Lock()
+				if err == nil && key > 0 {
+					keyLat = append(keyLat, key)
+				}
 				if err != nil {
 					errs++
+					if len(samples) < 3 {
+						samples = append(samples, err.Error())
+					}
 				} else {
 					lat = append(lat, d)
 				}
@@ -64,65 +72,110 @@ func main() {
 	}
 	wg.Wait()
 
+	fmt.Printf("ops=%d errors=%d ok=%d\n", ops, errs, len(lat))
+	for _, s := range samples {
+		fmt.Println("  error:", s)
+	}
 	if len(lat) == 0 {
-		fmt.Printf("no successful operations, %d errors\n", errs)
 		os.Exit(1)
 	}
 	sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
-	pct := func(p float64) time.Duration {
-		i := int(float64(len(lat)-1) * p)
-		return lat[i]
+	pct := func(xs []time.Duration, p float64) time.Duration {
+		i := int(float64(len(xs)-1) * p)
+		return xs[i]
 	}
 	fmt.Printf("ops=%d errors=%d ok=%d\n", ops, errs, len(lat))
-	fmt.Printf("p50=%s p95=%s p99=%s max=%s\n", pct(0.50), pct(0.95), pct(0.99), lat[len(lat)-1])
+	for _, s := range samples {
+		fmt.Println("  error:", s)
+	}
+	fmt.Printf("session p50=%s p95=%s p99=%s max=%s\n",
+		pct(lat, 0.50), pct(lat, 0.95), pct(lat, 0.99), lat[len(lat)-1])
+	if len(keyLat) > 0 {
+		sort.Slice(keyLat, func(i, j int) bool { return keyLat[i] < keyLat[j] })
+		fmt.Printf("keystroke p50=%s p95=%s p99=%s max=%s\n",
+			pct(keyLat, 0.50), pct(keyLat, 0.95), pct(keyLat, 0.99), keyLat[len(keyLat)-1])
+	}
 }
 
-func op(addr string, cfg *ssh.ClientConfig, mode string) error {
+func op(addr string, cfg *ssh.ClientConfig, mode string) (time.Duration, error) {
 	client, err := ssh.Dial("tcp", addr, cfg)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer client.Close()
 	sess, err := client.NewSession()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer sess.Close()
 	if mode == "auth" {
-		return sess.Run("whoami")
+		return 0, sess.Run("whoami")
 	}
 	modes := ssh.TerminalModes{ssh.ECHO: 1}
 	if err := sess.RequestPty("xterm-256color", 24, 80, modes); err != nil {
-		return err
+		return 0, err
 	}
 	stdin, err := sess.StdinPipe()
 	if err != nil {
-		return err
+		return 0, err
 	}
+	// Consume stdout/stderr through a non-blocking writer: x/crypto requires
+	// the streams to be drained before Wait returns, and chunk arrival is our
+	// keystroke-to-render proxy.
+	chunks := make(chan []byte, 64)
+	w := chunkWriter{ch: chunks}
+	sess.Stdout = w
+	sess.Stderr = w
 	if err := sess.Shell(); err != nil {
-		return err
+		return 0, err
 	}
-	time.Sleep(120 * time.Millisecond)
-	_, err = io.WriteString(stdin, "?")
-	if err != nil {
-		return err
+	if _, ok := waitChunk(chunks, 3*time.Second); !ok {
+		return 0, fmt.Errorf("no initial render")
 	}
-	time.Sleep(80 * time.Millisecond)
-	_, err = io.WriteString(stdin, "q")
-	if err != nil {
-		return err
+	if _, err := io.WriteString(stdin, "j"); err != nil {
+		return 0, err
 	}
-	stdout, err := sess.StdoutPipe()
-	if err != nil {
-		return err
+	key, ok := waitChunk(chunks, 3*time.Second)
+	if !ok {
+		return 0, fmt.Errorf("no render after keystroke")
 	}
-	go io.Copy(io.Discard, stdout)
+	_ = key
+	if _, err := io.WriteString(stdin, "q"); err != nil {
+		return 0, err
+	}
 	done := make(chan struct{})
 	go func() { sess.Wait(); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
-		return fmt.Errorf("session did not close")
+		return 0, fmt.Errorf("session did not close")
 	}
-	return nil
+	return key, nil
+}
+
+// chunkWriter copies session output into a buffered channel without ever
+// blocking the SSH reader; overflow is dropped because this is a load tool.
+type chunkWriter struct{ ch chan []byte }
+
+func (w chunkWriter) Write(p []byte) (int, error) {
+	b := append([]byte(nil), p...)
+	select {
+	case w.ch <- b:
+	default:
+	}
+	return len(p), nil
+}
+
+// waitChunk waits for the next output chunk and returns how long it took.
+func waitChunk(ch <-chan []byte, timeout time.Duration) (time.Duration, bool) {
+	start := time.Now()
+	select {
+	case _, ok := <-ch:
+		if !ok {
+			return 0, false
+		}
+		return time.Since(start), true
+	case <-time.After(timeout):
+		return 0, false
+	}
 }
