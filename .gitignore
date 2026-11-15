@@ -1,0 +1,20 @@
+# build artifacts
+/bbs
+/dist/
+*.test
+*.out
+
+# runtime data
+/hexline.db*
+/data/
+/backups/
+*.log
+
+# local config
+/hexline.toml
+
+# editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
