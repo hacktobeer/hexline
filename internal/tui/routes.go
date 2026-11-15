@@ -1,7 +1,5 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
-
 // Route identifies a screen.
 type Route string
 
@@ -112,22 +110,4 @@ func newScreen(a *App, r Route, arg any) Screen {
 		return newAdminBroadcast(a, arg)
 	}
 	return nil
-}
-
-// stubScreen is the placeholder used before a feature lands.
-type stubScreen struct {
-	BaseScreen
-	body string
-}
-
-func newStub(route Route, title, hints string) *stubScreen {
-	return &stubScreen{BaseScreen: BaseScreen{Route: route, TitleText: title, Hints: hints}, body: "(coming soon)"}
-}
-
-func (s *stubScreen) Init(a *App) tea.Cmd { return nil }
-
-func (s *stubScreen) Update(a *App, msg tea.Msg) tea.Cmd { return nil }
-
-func (s *stubScreen) View(a *App) string {
-	return styleDim.Render(s.body)
 }

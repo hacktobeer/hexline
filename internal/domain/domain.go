@@ -203,7 +203,6 @@ type Post struct {
 	Deleted   bool
 	DeletedBy string
 	DeleteWhy string
-	ReplyTo   *int64
 }
 
 // Mail is a private message.

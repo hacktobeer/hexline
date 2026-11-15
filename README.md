@@ -16,7 +16,7 @@ one-liners, chat. Single binary, SQLite, no interactive web UI.
 
 Message boards with threads, markup, unread tracking and FTS5 search · private mail with quotas and
 blocklists · file areas with pipe upload/download, checksums and ratings · oneliners, polls,
-bulletins and live chat · who's-online, last callers, sysop page · registration with probation ·
+bulletins and live chat · who's-online with idle state · registration with probation ·
 moderation with per-area ACLs and an audit trail · sysop CLI and in-BBS menu · backups, migrations,
 metrics and retention pruning.
 

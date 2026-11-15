@@ -24,6 +24,8 @@ Deviations worth reviewing:
 - File transfer is pipe-only (`ssh bbs put|get`); the tokenized HTTP download URL is v1.x.
 - Search filters by area only; author/date filters and snippet highlighting are not exposed in the UI.
 - Post editing is not limited to a grace window; moderators can edit any post in their area.
+- Last callers, sysop page/interrupt, per-user time budget and post restore were promised by the
+  first draft of the docs and are not implemented; they are tracked as X6-X9 instead.
 - Mail has no archive/search; per-side soft delete covers the "delete" half of "delete/archive".
 - Chat history is in-memory per process; a restart clears scrollback (by design, no table).
 - `bbs admin broadcast` publishes to the calling process's broker, so it only reaches live sessions
@@ -168,6 +170,10 @@ an audit trail.
 | X3 | Read-only web mirror (D4 — first v1.x item) | Server-rendered, no JS, text-only, same sanitizer with HTML escaping |
 | X4 | Postgres store implementation | Repository interfaces already abstracted |
 | X5 | TOTP for sysop, themes/palettes, SMTP forwarding | Independent, small |
+| X6 | "Last callers" list | Needs only a sessions query; was advertised in early docs |
+| X7 | Sysop page / chat interrupt | Ring a live node from the sysop menu; reuses presence + hub |
+| X8 | Per-user time budget ("time left") | Classic BBS limit; needs a per-class budget in config |
+| X9 | Restore a soft-deleted post | Store already keeps body + who/why; needs an undelete path + audit |
 
 ---
 

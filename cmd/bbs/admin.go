@@ -593,11 +593,12 @@ func adminStatsCmd(configPath *string) *cobra.Command {
 }
 
 func adminPruneCmd(configPath *string) *cobra.Command {
-	var dryRun bool
+	var apply bool
 	cmd := &cobra.Command{
 		Use:   "prune",
-		Short: "Apply retention policy (dry-run reports counts)",
+		Short: "Report what retention would delete (add --yes to delete)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dryRun := !apply
 			return adminWithRuntime(*configPath, func(rt *runtime) error {
 				res, err := rt.admin.Prune(cliAdminContext(), dryRun)
 				if err != nil {
@@ -616,7 +617,7 @@ func adminPruneCmd(configPath *string) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "report what would be pruned without deleting")
+	cmd.Flags().BoolVar(&apply, "yes", false, "actually delete; without it prune only reports counts")
 	return cmd
 }
 

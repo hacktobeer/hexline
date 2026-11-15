@@ -146,7 +146,7 @@ func (p *pager) SetText(text string, width int, ansi bool) {
 	p.top = 0
 }
 
-// Lines exposes the wrapped lines (search screens may inspect them).
+// Lines exposes the wrapped lines (bulletin navigation peeks at them).
 func (p *pager) Lines() []string { return p.lines }
 
 // Move scrolls by delta within height.

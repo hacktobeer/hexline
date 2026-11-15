@@ -44,9 +44,9 @@ The sysop's job is a CLI plus an in-BBS admin menu — no web UI in v1.
 password, optional email, terminal prefs) → MOTD + bulletins + "what's new since your last call"
 → main menu. **Return flow:** login → unread summary with counts → jump to board / mail / files.
 
-**Session flow rules that matter:** idle timeout (default 15 min, warning at 60 s), per-class
-"time left" budget, sysop page/chat interrupt, clean disconnect on `Ctrl-]`/`Q`, and every screen
-reachable with single-key hotkeys as well as arrows.
+**Session flow rules that matter:** idle timeout (default 15 min), clean disconnect on `Ctrl-C` or
+`q` from the main menu, live chat channels (global and sysop), and every screen reachable with
+single-key hotkeys as well as arrows.
 
 ---
 
@@ -55,23 +55,24 @@ reachable with single-key hotkeys as well as arrows.
 ### 3.1 v1.0 scope (must ship)
 
 **Access & identity**
-- SSH is the only transport (D1): password + optional public-key auth, persistent host key, one
-  listener, one auth path, no cleartext option; per-IP and per-account login throttling with
-  exponential backoff.
+- SSH is the only transport (D1): password + optional public-key auth (keys enrolled with
+  `bbs admin user key add`), persistent host key, one listener, one auth path, no cleartext option;
+  per-IP and per-account login throttling with exponential backoff. Bans apply to both auth methods.
 - Guest/demo account (read-only, configurable), open registration with handle rules +
   reserved-name list, password reset by sysop CLI, self-service password change.
 - New-user probation (D3): capped posts/day, no uploads, no links; auto-promoted by time + post
   count (defaults 3 days / 10 posts) or manually by a moderator.
 - Profiles: handle, real name (private by default), location, signature (ASCII, sanitized, max 4
   lines), timezone, terminal prefs (width, ANSI on/off, CP437 art on/off, pager vs scroll).
-- Presence: node IDs, who's online, idle state, "last callers" list, sysop chat/page.
+- Presence: node IDs, who's online, idle state, and live chat channels (global + sysop).
 - Session accounting: login count, last call, time-online stats, per-user message/file counters.
 
 **Message bases**
 - Areas (conferences) with description, ordering, ACLs (`read`, `post`, `reply`, `attach`,
   `moderate`), per-area retention and post-rate limits.
 - Threads + replies, quoting with attribution (`> ` prefix, `%s wrote:` header), post preview,
-  edit within a grace window, soft delete + restore, lock, sticky, move thread between areas.
+  editing, moderator soft delete, lock, sticky, move thread between areas. Readers load the newest
+  50 posts and page backwards with `o`, so a huge thread never lands in memory at once.
 - Read tracking per user (`last_read_post_id`), unread counts per area and per thread, full
   "new messages" scan across all readable areas, mark-all-read.
 - Full-text search (SQLite FTS5) over subject+body with area/author/date filters, snippet
@@ -298,7 +299,7 @@ areas(id PK ulid, tag UNIQUE, name, description, sort_order, acl_read, acl_post,
 threads(id PK ulid, area_id FK, subject, author_id, created_at, last_post_at,
         post_count, is_sticky, is_locked, is_deleted, moved_from_area_id NULL)
 posts(id PK int64 AUTOINCREMENT, thread_id FK, author_id, body, created_at, edited_at,
-      is_deleted, deleted_by, delete_reason, reply_to_post_id NULL, ip_hash NULL)
+      is_deleted, deleted_by, delete_reason, ip_hash NULL)
 ssh_keys(fingerprint PK, user_id FK, key, created_at)
 thread_reads(user_id, thread_id, last_read_post_id, read_at, PRIMARY KEY(user_id, thread_id))
 posts_fts(subject, body)                  -- contentless/external-content FTS5 + sync triggers

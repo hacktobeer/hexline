@@ -29,8 +29,7 @@ const boardThreadFrom = ` FROM threads t
 	LEFT JOIN thread_reads tr ON tr.thread_id = t.id AND tr.user_id = ?`
 
 const boardPostCols = `p.id, p.thread_id, p.author_id, u.handle, p.body, p.created_at,
-	p.edited_at, p.is_deleted, COALESCE(p.deleted_by, ''), COALESCE(p.delete_reason, ''),
-	p.reply_to_post_id`
+	p.edited_at, p.is_deleted, COALESCE(p.deleted_by, ''), COALESCE(p.delete_reason, '')`
 
 const boardPostFrom = ` FROM posts p JOIN users u ON u.id = p.author_id`
 
@@ -84,19 +83,13 @@ func scanBoardPost(sc interface{ Scan(...any) error }) (*domain.Post, error) {
 	var p domain.Post
 	var createdAt, editedAt int64
 	var deleted int
-	var replyTo sql.NullInt64
 	if err := sc.Scan(&p.ID, &p.ThreadID, &p.AuthorID, &p.Author, &p.Body,
-		&createdAt, &editedAt, &deleted, &p.DeletedBy, &p.DeleteWhy,
-		&replyTo); err != nil {
+		&createdAt, &editedAt, &deleted, &p.DeletedBy, &p.DeleteWhy); err != nil {
 		return nil, notFound(err)
 	}
 	p.CreatedAt = fromTS(createdAt)
 	p.EditedAt = fromTS(editedAt)
 	p.Deleted = deleted == 1
-	if replyTo.Valid {
-		v := replyTo.Int64
-		p.ReplyTo = &v
-	}
 	return &p, nil
 }
 

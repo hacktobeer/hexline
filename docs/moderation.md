@@ -31,7 +31,8 @@ bbs admin user role HANDLE --role moderator
 bbs admin ban add --handle HANDLE --reason "spam" --expires 720h
 bbs admin ban list
 bbs admin audit --limit 50
-bbs admin prune --dry-run                # what retention would delete
+bbs admin prune                          # report what retention would delete
+bbs admin prune --yes                    # actually delete (quietly does nothing without --yes)
 ```
 
 ## Probation (D3/D9)

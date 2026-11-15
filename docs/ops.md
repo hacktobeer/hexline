@@ -88,6 +88,16 @@ bbs doctor --config /etc/hexline.toml    # integrity_check + schema + filesystem
 Back up `files/` (uploads) separately with your usual file-level backup; it is content-addressed by
 ULID, never rewritten in place.
 
+## Retention
+
+```sh
+bbs admin prune        # report what would be deleted (default is a dry run)
+bbs admin prune --yes  # delete sessions, audit rows, oneliners and soft-deleted posts
+```
+
+Categories come from `[retention]`; a zero disables that category. Pruning is permanent: the audit
+trail is what you need after an incident, so run the dry run first and keep `audit_days` generous.
+
 ## Upgrade
 
 1. `bbs backup`
@@ -149,8 +159,11 @@ spikes, disk usage of `data_dir`.
 ## Moderation and abuse
 
 - Suspended accounts cannot log in (`bbs admin user status HANDLE suspended`).
-- Bans: `bbs admin ban add --handle X --reason ...`, `--ip <hash>` using the `ip_hash` shown in the
-  audit log. Expired bans are ignored.
+- Bans: `bbs admin ban add --scope handle --value X --reason ...`, or `--scope ip --value <hash>`
+  with the 22-character `ip_hash` shown in the audit log (a raw IP is rejected). Expired bans are
+  ignored, and both password and key logins check them.
+- SSH keys: `bbs admin user key add HANDLE ~/.ssh/id_ed25519.pub`, `key list HANDLE`,
+  `key remove HANDLE FINGERPRINT`. Key login is disabled entirely with `transport.ssh.allow_pubkey = false`.
 - Escape-sequence injection is blocked at write and render time; if you find a bypass, capture the
   bytes and file a security issue. Keep the sanitizer fuzz corpus updated.
 - Uploads land as `scan_status = clean`; wire an external scanner before opening uploads to
