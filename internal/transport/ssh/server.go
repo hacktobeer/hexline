@@ -343,11 +343,66 @@ func (s *Server) runCommand(sess ssh.Session) {
 		}
 		s.log.Info("download", "handle", user.Handle, "file", file.Filename, "bytes", n)
 		_ = sess.Exit(0)
+	case "put":
+		if len(args) != 2 {
+			fmt.Fprint(sess, "usage: ssh <board> put AREA/FILE < local-file\r\n")
+			_ = sess.Exit(2)
+			return
+		}
+		area, filename, ok := splitSpec(args[1])
+		if !ok {
+			fmt.Fprint(sess, "usage: ssh <board> put AREA/FILE < local-file\r\n")
+			_ = sess.Exit(2)
+			return
+		}
+		max := s.deps.Cfg.Storage.MaxUploadBytes
+		if err := os.MkdirAll(s.deps.Cfg.FilesPath(), 0o750); err != nil {
+			fmt.Fprintf(sess, "error: %v\r\n", err)
+			_ = sess.Exit(1)
+			return
+		}
+		tmp, err := os.CreateTemp(s.deps.Cfg.FilesPath(), ".hexline-upload-*")
+		if err != nil {
+			fmt.Fprintf(sess, "error: %v\r\n", err)
+			_ = sess.Exit(1)
+			return
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		n, err := io.Copy(tmp, io.LimitReader(sess, max+1))
+		if err != nil {
+			tmp.Close()
+			fmt.Fprintf(sess, "error: receive failed: %v\r\n", err)
+			_ = sess.Exit(1)
+			return
+		}
+		if n > max {
+			tmp.Close()
+			fmt.Fprintf(sess, "error: upload exceeds the %d byte limit\r\n", max)
+			_ = sess.Exit(1)
+			return
+		}
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			tmp.Close()
+			fmt.Fprintf(sess, "error: %v\r\n", err)
+			_ = sess.Exit(1)
+			return
+		}
+		file, err := s.deps.Files.Upload(context.Background(), user, area, filename, "", tmp, n)
+		tmp.Close()
+		if err != nil {
+			fmt.Fprintf(sess, "error: %v\r\n", err)
+			_ = sess.Exit(1)
+			return
+		}
+		s.log.Info("upload", "handle", user.Handle, "file", file.Filename, "bytes", n)
+		fmt.Fprintf(sess, "stored %s/%s (%d bytes, sha256 %s)\r\n", area, file.Filename, file.SizeBytes, file.SHA256)
+		_ = sess.Exit(0)
 	case "whoami":
 		fmt.Fprintf(sess, "%s\r\n", user.Handle)
 		_ = sess.Exit(0)
 	case "help", "-h", "--help":
-		fmt.Fprint(sess, "hexline commands:\r\n  get AREA/FILE   stream a file from a file area\r\n  whoami\r\n")
+		fmt.Fprint(sess, "hexline commands:\r\n  get AREA/FILE   stream a file from a file area\r\n  put AREA/FILE   upload stdin into a file area\r\n  whoami\r\n")
 		_ = sess.Exit(0)
 	default:
 		fmt.Fprintf(sess, "unknown command %q\r\n", args[0])

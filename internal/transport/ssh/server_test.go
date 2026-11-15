@@ -230,3 +230,50 @@ func TestTUIConnectsAndQuits(t *testing.T) {
 		t.Fatalf("active sessions = %d after quit", b.srv.ActiveSessions())
 	}
 }
+
+func TestUploadDownloadRoundTrip(t *testing.T) {
+	b := startBoard(t)
+	client := dial(t, b.addr, "tester", "test-password-1")
+
+	payload := []byte("hello from the pipe\x00\x01binary-safe\n")
+	up, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	up.Stdin = bytes.NewReader(payload)
+	out, err := up.Output("put UPLOADS/roundtrip.bin")
+	if err != nil {
+		t.Fatalf("put: %v (%s)", err, out)
+	}
+	if !strings.Contains(string(out), "stored") {
+		t.Fatalf("put output = %q", out)
+	}
+
+	down, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := down.Output("get UPLOADS/roundtrip.bin")
+	if err != nil {
+		t.Fatalf("get: %v (%s)", err, got)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("round trip mismatch: %q", got)
+	}
+}
+
+func TestDownloadRejectsTraversal(t *testing.T) {
+	b := startBoard(t)
+	client := dial(t, b.addr, "tester", "test-password-1")
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := sess.Output("get UPLOADS/../../etc/passwd")
+	if err == nil {
+		t.Fatalf("traversal was accepted: %q", out)
+	}
+	if strings.Contains(string(out), "root:") {
+		t.Fatal("leaked /etc/passwd")
+	}
+}
