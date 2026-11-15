@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,9 +21,29 @@ import (
 )
 
 type testBoard struct {
-	cfg  *config.Config
-	addr string
-	srv  *Server
+	cfg   *config.Config
+	addr  string
+	srv   *Server
+	store *store.Store
+}
+
+// syncBuffer is a goroutine-safe bytes.Buffer for reading session output
+// while the SSH client's copy goroutine is still writing.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func freePort(t *testing.T) string {
@@ -69,11 +90,13 @@ func startBoard(t *testing.T) *testBoard {
 	}
 
 	broker := hub.NewBroker(16)
+	admin := service.NewAdmin(st, cfg, broker)
+	auth.SetBanChecker(admin.IsBanned)
 	srv, err := New(Deps{
 		Cfg: cfg, Store: st, Auth: auth,
 		Boards: service.NewBoards(st, cfg), Mail: service.NewMail(st, cfg),
 		Files: service.NewFiles(st, cfg), Community: service.NewCommunity(st, cfg, broker),
-		Admin: service.NewAdmin(st, cfg, broker), Broker: broker, Presence: hub.NewPresence(),
+		Admin: admin, Broker: broker, Presence: hub.NewPresence(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +105,7 @@ func startBoard(t *testing.T) *testBoard {
 	t.Cleanup(cancel)
 	go srv.Serve(ctx)
 	waitForPort(t, cfg.Transport.SSH.Address)
-	return &testBoard{cfg: cfg, addr: cfg.Transport.SSH.Address, srv: srv}
+	return &testBoard{cfg: cfg, addr: cfg.Transport.SSH.Address, srv: srv, store: st}
 }
 
 func mustHash(t *testing.T, a *service.Auth, pw string) string {
@@ -163,7 +186,7 @@ func TestUnknownHandleGetsRegistrationSession(t *testing.T) {
 	if err := sess.RequestPty("xterm-256color", 24, 80, modes); err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
+	var buf syncBuffer
 	sess.Stdout = &buf
 	sess.Stdin = strings.NewReader("")
 	if err := sess.Shell(); err != nil {
@@ -204,7 +227,7 @@ func TestTUIConnectsAndQuits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
+	var out syncBuffer
 	go io.Copy(&out, stdout)
 	if err := sess.Shell(); err != nil {
 		t.Fatal(err)
@@ -275,5 +298,22 @@ func TestDownloadRejectsTraversal(t *testing.T) {
 	}
 	if strings.Contains(string(out), "root:") {
 		t.Fatal("leaked /etc/passwd")
+	}
+}
+
+func TestBannedHandleRejectedOverSSH(t *testing.T) {
+	b := startBoard(t)
+	// The board's store is private to startBoard; create the ban through the
+	// same database file via the admin CLI-equivalent path.
+	ban := &domain.Ban{Scope: "handle", Value: "tester", Reason: "spam"}
+	if err := b.store.CreateBan(ban); err != nil {
+		t.Fatal(err)
+	}
+	_, err := gossh.Dial("tcp", b.addr, &gossh.ClientConfig{
+		User: "tester", Auth: []gossh.AuthMethod{gossh.Password("test-password-1")},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+	})
+	if err == nil {
+		t.Fatal("banned handle was allowed to authenticate")
 	}
 }

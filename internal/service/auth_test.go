@@ -37,7 +37,11 @@ func testStore(t *testing.T) *store.Store {
 
 func testAuth(t *testing.T) (*Auth, *store.Store) {
 	st := testStore(t)
-	return NewAuth(st, testConfig(), nil), st
+	return NewAuth(st, testConfig(), func(e domain.AuditEntry) {
+		if err := st.RecordAudit(e); err != nil {
+			t.Logf("audit: %v", err)
+		}
+	}), st
 }
 
 func TestPasswordHashVerify(t *testing.T) {
@@ -199,5 +203,37 @@ func TestSignatureIsBounded(t *testing.T) {
 	}
 	if strings.Contains(stored.Signature, "\x1b") {
 		t.Fatal("signature kept escape sequence")
+	}
+}
+
+func TestBanCheckerBlocksLoginAndRegistration(t *testing.T) {
+	a, st := testAuth(t)
+	ctx := context.Background()
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "banned-one", Password: "password123"}); err != nil {
+		t.Fatal(err)
+	}
+	a.SetBanChecker(func(ctx context.Context, handle, ipHash string) (bool, string, error) {
+		if strings.EqualFold(handle, "banned-one") || ipHash == "badip" {
+			return true, "spam", nil
+		}
+		return false, "", nil
+	})
+
+	_, err := a.Authenticate(ctx, "banned-one", "password123", "goodip")
+	if !errors.Is(err, domain.ErrPermission) {
+		t.Fatalf("banned handle logged in: %v", err)
+	}
+	_, err = a.Register(ctx, RegisterRequest{Handle: "fresh-handle", Password: "password123", IPHash: "badip"})
+	if !errors.Is(err, domain.ErrPermission) {
+		t.Fatalf("banned IP registered: %v", err)
+	}
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'auth.banned'`).Scan(&n); err != nil || n == 0 {
+		t.Fatalf("expected auth.banned audit rows, got %d (%v)", n, err)
+	}
+
+	a.SetBanChecker(func(ctx context.Context, handle, ipHash string) (bool, string, error) { return false, "", nil })
+	if _, err := a.Authenticate(ctx, "banned-one", "password123", "goodip"); err != nil {
+		t.Fatalf("unbanned login failed: %v", err)
 	}
 }

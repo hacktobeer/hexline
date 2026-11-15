@@ -26,6 +26,13 @@ type Auth struct {
 	mu     sync.Mutex
 	fails  map[string]*failWindow
 	audit  func(domain.AuditEntry)
+	// bans is installed by the runtime; nil means no ban checking.
+	bans func(ctx context.Context, handle, ipHash string) (bool, string, error)
+}
+
+// SetBanChecker installs the ban lookup used by login and registration.
+func (a *Auth) SetBanChecker(fn func(ctx context.Context, handle, ipHash string) (bool, string, error)) {
+	a.bans = fn
 }
 
 type failWindow struct {
@@ -75,6 +82,9 @@ func (a *Auth) Authenticate(ctx context.Context, handle, password, ipHash string
 	if err := a.throttleCheck(handle, ipHash); err != nil {
 		return nil, err
 	}
+	if err := a.checkBans(ctx, handle, ipHash); err != nil {
+		return nil, err
+	}
 	u, err := a.store.UserByHandle(handle)
 	if err != nil {
 		a.recordFailure(handle, ipHash, false)
@@ -109,6 +119,9 @@ func (a *Auth) Authenticate(ctx context.Context, handle, password, ipHash string
 func (a *Auth) Register(ctx context.Context, req RegisterRequest) (*domain.User, error) {
 	if !a.cfg.Registration.Open && !req.AllowClosed {
 		return nil, fmt.Errorf("%w: registration is closed", domain.ErrPermission)
+	}
+	if err := a.checkBans(ctx, req.Handle, req.IPHash); err != nil {
+		return nil, err
 	}
 	if req.AllowReserved {
 		if err := domain.ValidateHandleShape(req.Handle); err != nil {
@@ -332,6 +345,23 @@ func (a *Auth) recordFailure(handle, ipHash string, ok bool) {
 		f.until = now.Add(a.cfg.Limits.LoginWindow)
 	}
 	_ = a.store.RecordLoginAttempt(ipHash, handle, ok)
+}
+
+// checkBans rejects banned handles and IP hashes with a generic message that
+// does not reveal which scope matched.
+func (a *Auth) checkBans(ctx context.Context, handle, ipHash string) error {
+	if a.bans == nil {
+		return nil
+	}
+	banned, reason, err := a.bans(ctx, handle, ipHash)
+	if err != nil || !banned {
+		return nil
+	}
+	a.auditEvent(domain.AuditEntry{
+		Actor: handle, Action: "auth.banned", TargetKind: "handle", TargetID: handle,
+		IPHash: ipHash, Detail: fmt.Sprintf(`{"reason":%q}`, reason),
+	})
+	return fmt.Errorf("%w: this connection is not welcome here", domain.ErrPermission)
 }
 
 func (a *Auth) auditEvent(e domain.AuditEntry) {
