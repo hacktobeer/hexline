@@ -61,9 +61,10 @@ front-end. Prefer the stream front-end if you need per-IP rate limiting before S
 The image is distroless (no shell, no package manager, ~17 MB) and runs as UID 65532. All state
 lives in `/data`: SQLite database, SSH host key, uploads, backups.
 
-```sh
-docker build -t hexline .
+Published images live at `ghcr.io/hacktobeer/hexline` (see Releasing); build locally with
+`docker build -t hexline .`.
 
+```sh
 # first run (one-shot container, same volume)
 docker volume create hexline-data
 docker run --rm -v hexline-data:/data hexline admin user create --handle sysop --role sysop
@@ -150,9 +151,10 @@ git tag -a v1.0.0 -m "hexline 1.0.0"
 git push origin v1.0.0
 ```
 
-The workflow runs the test suite, then publishes a GitHub release with static `linux`/`darwin`
-binaries for `amd64` and `arm64`, tarballs that include `README.md`, `docs/*.md` and
-`hexline.example.toml`, and a `checksums.txt`. The changelog groups `feat:` and `fix:` commits and
+The workflow runs the test suite, then publishes a GitHub release with static `linux`, `darwin`
+and `windows` binaries for `amd64` and `arm64`. Unix targets ship as `.tar.gz`, Windows as `.zip`
+(with `bbs.exe`); every archive includes `README.md`, `docs/*.md` and `hexline.example.toml`, and a
+`checksums.txt` covers all of them. The changelog groups `feat:` and `fix:` commits and
 drops docs/test/chore/ci/build noise. `bbs version` reports the tag, commit and build date baked in
 with `-X` ldflags.
 
@@ -163,8 +165,19 @@ goreleaser check
 goreleaser release --snapshot --clean --skip=publish   # writes dist/
 ```
 
-CI validates the config on every push. Container images are built by the Dockerfile (CI and
-`docs/ops.md#docker`), not by GoReleaser.
+CI validates the config on every push.
+
+The same tag builds and pushes a multi-arch container image (`linux/amd64`, `linux/arm64`) to the
+GitHub Container Registry, after the release job succeeds:
+
+```sh
+docker pull ghcr.io/hacktobeer/hexline:1.0.0
+# also tagged :1.0, :1 and :latest (prereleases are not tagged latest)
+```
+
+Version, commit and build date are baked into both the binaries and the image. The first push
+creates a private GHCR package: set its visibility to public in the package settings if you want
+anonymous pulls.
 
 ## Upgrade
 

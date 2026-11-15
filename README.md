@@ -72,7 +72,10 @@ docker run --rm -v hexline-data:/data hexline admin user create --handle sysop -
 docker run -d --name hexline -p 2222:2222 -v hexline-data:/data hexline
 ```
 
-See [`docs/ops.md`](docs/ops.md#docker) for volumes, bind-mount ownership, backups and upgrades.
+Released builds (once a version is tagged) cover linux/darwin/windows on amd64/arm64 and a
+multi-arch image at `ghcr.io/hacktobeer/hexline` — see
+[`docs/ops.md`](docs/ops.md#releasing). For volumes, bind-mount ownership, backups and upgrades see
+[`docs/ops.md`](docs/ops.md#docker).
 
 Drive it without a terminal:
 

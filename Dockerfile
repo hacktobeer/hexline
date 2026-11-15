@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1
 
 # --- build -------------------------------------------------------------------
-FROM golang:1.26 AS build
+# Build on the host platform and cross-compile: multi-arch images then need no
+# QEMU for the Go toolchain, only the (static) runtime layer is target-arch.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
 WORKDIR /src
 
 # Module download first so source edits do not invalidate the dependency layer.
@@ -13,7 +17,7 @@ COPY . .
 ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
         -ldflags "-s -w \
           -X github.com/hacktobeer/hexline/internal/version.Version=${VERSION} \
           -X github.com/hacktobeer/hexline/internal/version.Commit=${COMMIT} \
