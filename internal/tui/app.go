@@ -206,7 +206,9 @@ func (a *App) View() string {
 	if a.flash != "" && time.Now().Before(a.flashUntil) {
 		foot = HintBar(a.W, "» "+a.flash)
 	}
-	return strings.Join([]string{head, rule, strings.Join(lines, "\n"), foot}, "\n") + "\n"
+	// Exactly H lines: Bubble Tea drops the top of taller frames when it knows
+	// the terminal height, which would eat the header.
+	return strings.Join([]string{head, rule, strings.Join(lines, "\n"), foot}, "\n")
 }
 
 // BodyHeight is the number of rows available to a screen.

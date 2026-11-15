@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/hacktobeer/hexline/internal/config"
 	"github.com/hacktobeer/hexline/internal/domain"
@@ -144,5 +145,14 @@ func TestANSIThemeFollowsTheCallerPreference(t *testing.T) {
 	}
 	if app.ANSI() {
 		t.Fatal("App.ANSI ignores the preference")
+	}
+}
+
+func TestEnableColorEmits256ColourSequences(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+	EnableColor()
+	if out := styleAccent.Render("x"); !strings.Contains(out, "38;5;") {
+		t.Fatalf("styled output has no colour sequence: %q", out)
 	}
 }

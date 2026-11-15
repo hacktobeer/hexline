@@ -473,3 +473,43 @@ func TestUploadOverCapIsRejected(t *testing.T) {
 		t.Fatalf("unhelpful error: %q", out)
 	}
 }
+
+func TestTUIDoesNotLeaveStaleTextOnNavigation(t *testing.T) {
+	b := startBoard(t)
+	client := dial(t, b.addr, "tester", "test-password-1")
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if err := sess.RequestPty("xterm-256color", 24, 80, gossh.TerminalModes{gossh.ECHO: 1}); err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := sess.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out syncBuffer
+	sess.Stdout = &out
+	sess.Stderr = &out
+	if err := sess.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "Boards") {
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Help is shorter than the menu; rendering it must erase the leftover
+	// cells, which Bubble Tea only does when it knows the terminal width.
+	if _, err := io.WriteString(stdin, "?"); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(out.String(), "\x1b[K") || strings.Contains(out.String(), "\x1b[J") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("no line-erase sequence after navigation: the renderer has no terminal size")
+}

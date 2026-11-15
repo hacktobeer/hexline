@@ -25,6 +25,7 @@ import (
 	"github.com/hacktobeer/hexline/internal/service"
 	"github.com/hacktobeer/hexline/internal/store"
 	sshtransport "github.com/hacktobeer/hexline/internal/transport/ssh"
+	"github.com/hacktobeer/hexline/internal/tui"
 	"github.com/hacktobeer/hexline/internal/version"
 )
 
@@ -123,6 +124,7 @@ func serveCmd(configPath *string) *cobra.Command {
 				return err
 			}
 			logger := newLogger()
+			tui.EnableColor()
 			rt, err := newRuntime(cfg, logger)
 			if err != nil {
 				return err

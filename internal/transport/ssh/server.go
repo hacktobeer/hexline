@@ -314,6 +314,20 @@ func (s *Server) runSession(sess ssh.Session) {
 		_, err := program.Run()
 		done <- err
 	}()
+	// Bubble Tea only erases stale cells when it knows the terminal size. We
+	// are not using wish's bubbletea middleware, so forward the PTY size and
+	// every resize ourselves; without this, navigating from a long screen to a
+	// short one leaves the old text on screen.
+	go func() {
+		pty, windows, ok := sess.Pty()
+		if !ok {
+			return
+		}
+		program.Send(tea.WindowSizeMsg{Width: pty.Window.Width, Height: pty.Window.Height})
+		for w := range windows {
+			program.Send(tea.WindowSizeMsg{Width: w.Width, Height: w.Height})
+		}
+	}()
 	select {
 	case err := <-done:
 		if err != nil {

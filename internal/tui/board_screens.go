@@ -518,7 +518,7 @@ func newPostView(a *App, arg any) Screen {
 	spec := boardThreadArgOf(arg)
 	hints := "j/k scroll  n/p post  o older  r reply  e edit  esc back"
 	if a.IsModerator() {
-		hints = "j/k scroll  n/p post  o older  r reply  e edit  d delete  l lock  s sticky  m move  esc back"
+		hints = "j/k scroll  n/p post  o older  r reply  e edit  d del  l lock  s sticky  m move"
 	}
 	return &postViewScreen{
 		BaseScreen: BaseScreen{Route: RoutePosts, TitleText: "Thread", Hints: hints},
