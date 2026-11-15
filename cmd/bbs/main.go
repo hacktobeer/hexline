@@ -321,10 +321,13 @@ func startMetrics(ctx context.Context, cfg *config.Config, srv *sshtransport.Ser
 		return
 	}
 	dbSize := func() int64 {
-		if fi, err := os.Stat(cfg.DBPath()); err == nil {
-			return fi.Size()
+		var total int64
+		for _, p := range []string{cfg.DBPath(), cfg.DBPath() + "-wal"} {
+			if fi, err := os.Stat(p); err == nil {
+				total += fi.Size()
+			}
 		}
-		return 0
+		return total
 	}
 	handler := metrics.New(srv.ActiveSessions, srv.TotalSessions, presence.Count, dbSize)
 	srvHTTP := &http.Server{

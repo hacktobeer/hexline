@@ -8,7 +8,8 @@ package render
 import (
 	"strings"
 	"unicode"
-	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Sanitize removes control characters that could drive a terminal, along with
@@ -36,7 +37,7 @@ func Sanitize(s string) string {
 			continue
 		case unicode.Is(unicode.Cf, r): // zero-width, bidi overrides, BOM
 			continue
-		case r == utf8.RuneError:
+		case r == 0xFFFD:
 			b.WriteRune(0xFFFD)
 		default:
 			b.WriteRune(r)
@@ -53,59 +54,51 @@ func SanitizeLine(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// Clip hard-truncates s to n runes and appends an ellipsis when cut.
-// It is for display only: never store clipped text.
+// Clip hard-truncates s to n display columns and appends an ellipsis when cut.
+// Display columns, not runes: a CJK glyph or emoji takes two columns, so rune
+// counting would misalign every table it is used in.
 func Clip(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	if utf8.RuneCountInString(s) <= n {
+	if Width(s) <= n {
 		return s
 	}
 	if n == 1 {
 		return "…"
 	}
-	r := []rune(s)
-	return string(r[:n-1]) + "…"
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := Width(string(r))
+		if used+w > n-1 {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	return b.String() + "…"
 }
 
-// PadRight pads s with spaces to width (rune count). Longer strings are clipped.
+// PadRight pads s with spaces to width display columns. Longer strings are clipped.
 func PadRight(s string, width int) string {
 	s = Clip(s, width)
-	n := utf8.RuneCountInString(s)
+	n := Width(s)
 	if n >= width {
 		return s
 	}
 	return s + strings.Repeat(" ", width-n)
 }
 
-// PadLeft left-pads s to width.
+// PadLeft left-pads s to width display columns.
 func PadLeft(s string, width int) string {
 	s = Clip(s, width)
-	n := utf8.RuneCountInString(s)
+	n := Width(s)
 	if n >= width {
 		return s
 	}
 	return strings.Repeat(" ", width-n) + s
 }
 
-// Width returns the display width in runes, ignoring SGR escape sequences
-// that this package emits.
-func Width(s string) int {
-	w := 0
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				inEsc = false
-			}
-			continue
-		}
-		if r == 0x1b {
-			inEsc = true
-			continue
-		}
-		w++
-	}
-	return w
-}
+// Width returns the display width in columns, ignoring SGR escapes.
+func Width(s string) int { return ansi.StringWidth(s) }

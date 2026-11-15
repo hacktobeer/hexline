@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hacktobeer/hexline/internal/config"
@@ -462,5 +463,70 @@ func TestUploadExtensionPolicy(t *testing.T) {
 	fx.cfg.Storage.AllowedExt = []string{"txt"}
 	if _, err := fx.files.Upload(ctx, fx.user, "uploads", "notes.TXT", "", bytes.NewReader([]byte("n")), 1); err != nil {
 		t.Fatalf("allowed extension rejected: %v", err)
+	}
+}
+
+func TestConcurrentUploadsCannotExceedQuota(t *testing.T) {
+	f := filesTestFixture(t)
+	f.cfg.Limits.UploadQuotaBytes = 100
+	payload := bytes.Repeat([]byte("a"), 60)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := f.files.Upload(context.Background(), f.user, "uploads", "race.bin", "",
+				bytes.NewReader(payload), int64(len(payload)))
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	ok, rejected := 0, 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, domain.ErrQuota):
+			rejected++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 || rejected != 1 {
+		t.Fatalf("uploads: %d ok, %d rejected; want 1 and 1", ok, rejected)
+	}
+	used, err := f.st.UserUploadBytes(f.user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used > 100 {
+		t.Fatalf("quota exceeded: %d bytes stored", used)
+	}
+}
+
+func TestUploadStreamUsesActualSize(t *testing.T) {
+	f := filesTestFixture(t)
+	payload := []byte("streamed bytes")
+	sum := sha256.Sum256(payload)
+	file, err := f.files.UploadStream(context.Background(), f.user, "uploads", "stream.bin",
+		"from a pipe", bytes.NewReader(payload), 0)
+	if err != nil {
+		t.Fatalf("upload stream: %v", err)
+	}
+	if file.SizeBytes != int64(len(payload)) {
+		t.Fatalf("size = %d", file.SizeBytes)
+	}
+	if file.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("sha = %s", file.SHA256)
+	}
+
+	f.cfg.Storage.MaxUploadBytes = 5
+	if _, err := f.files.UploadStream(context.Background(), f.user, "uploads", "too-big.bin",
+		"", bytes.NewReader(make([]byte, 10)), 0); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("oversized stream error = %v", err)
 	}
 }

@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -111,10 +112,46 @@ func (f *Files) File(ctx context.Context, u *domain.User, id string) (*domain.Fi
 	return file, nil
 }
 
-// Upload stores a file under <files root>/<area tag>/<ulid>. The original
-// name lives only in the database; user input never forms a path.
+// filesUploadLocks serialize the quota check + rename + insert per user.
+// Striped so two different callers can still upload at the same time.
+var filesUploadLocks [64]sync.Mutex
+
+func filesUploadLock(userID string) *sync.Mutex {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(userID))
+	return &filesUploadLocks[h.Sum32()%uint32(len(filesUploadLocks))]
+}
+
+// Upload stores a file of a known size under <root>/<area tag>/<ulid>.
 func (f *Files) Upload(ctx context.Context, u *domain.User, areaTag, filename, description string,
 	r io.Reader, size int64) (*domain.File, error) {
+	if size <= 0 {
+		return nil, fmt.Errorf("%w: upload size must be greater than zero", domain.ErrInvalid)
+	}
+	if max := f.cfg.Storage.MaxUploadBytes; max > 0 && size > max {
+		return nil, fmt.Errorf("%w: upload is %d bytes, limit is %d", domain.ErrInvalid, size, max)
+	}
+	// One byte past the declared size catches a lying caller.
+	return f.receive(ctx, u, areaTag, filename, description, io.LimitReader(r, size+1), size)
+}
+
+// UploadStream stores a file whose size is not known up front (the `ssh put`
+// pipe). It stops reading at the configured maximum and uses the bytes it saw.
+func (f *Files) UploadStream(ctx context.Context, u *domain.User, areaTag, filename, description string,
+	r io.Reader, maxBytes int64) (*domain.File, error) {
+	if maxBytes <= 0 {
+		maxBytes = f.cfg.Storage.MaxUploadBytes
+	}
+	if maxBytes <= 0 {
+		return nil, fmt.Errorf("%w: no upload size limit configured", domain.ErrUnavailable)
+	}
+	return f.receive(ctx, u, areaTag, filename, description, io.LimitReader(r, maxBytes+1), -1)
+}
+
+// receive owns the single write of an upload: validate, stream to a temp file
+// while hashing, enforce the quota under a per-user lock, rename, insert.
+func (f *Files) receive(ctx context.Context, u *domain.User, areaTag, filename, description string,
+	r io.Reader, expected int64) (*domain.File, error) {
 	if err := filesUploader(u); err != nil {
 		return nil, err
 	}
@@ -136,23 +173,11 @@ func (f *Files) Upload(ctx context.Context, u *domain.User, areaTag, filename, d
 	if err != nil {
 		return nil, err
 	}
-	if size <= 0 {
-		return nil, fmt.Errorf("%w: upload size must be greater than zero", domain.ErrInvalid)
-	}
-	if max := f.cfg.Storage.MaxUploadBytes; max > 0 && size > max {
-		return nil, fmt.Errorf("%w: upload is %d bytes, limit is %d", domain.ErrInvalid, size, max)
-	}
 	if r == nil {
 		return nil, fmt.Errorf("%w: no content provided", domain.ErrInvalid)
 	}
-	used, err := f.st.UserUploadBytes(u.ID)
-	if err != nil {
-		return nil, err
-	}
-	if quota := f.cfg.Limits.UploadQuotaBytes; quota > 0 && used+size > quota {
-		return nil, fmt.Errorf("%w: %d of %d bytes used; this upload needs %d",
-			domain.ErrQuota, used, quota, size)
-	}
+	max := f.cfg.Storage.MaxUploadBytes
+	quota := f.cfg.Limits.UploadQuotaBytes
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -184,20 +209,22 @@ func (f *Files) Upload(ctx context.Context, u *domain.User, areaTag, filename, d
 		return nil, fmt.Errorf("files: set upload permissions: %w", err)
 	}
 	hasher := sha256.New()
-	// Read at most one byte past the declared size so a lying caller is caught
-	// instead of filling the disk.
-	readLimit := size
-	if size < math.MaxInt64 {
-		readLimit = size + 1
-	}
-	written, err := io.Copy(io.MultiWriter(tmp, hasher), io.LimitReader(r, readLimit))
+	written, err := io.Copy(io.MultiWriter(tmp, hasher), r)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("files: write upload: %w", err)
 	}
-	if written != size {
+	if expected >= 0 && written != expected {
 		cleanup()
-		return nil, fmt.Errorf("%w: expected %d bytes, received %d", domain.ErrInvalid, size, written)
+		return nil, fmt.Errorf("%w: expected %d bytes, received %d", domain.ErrInvalid, expected, written)
+	}
+	if written == 0 {
+		cleanup()
+		return nil, fmt.Errorf("%w: upload is empty", domain.ErrInvalid)
+	}
+	if max > 0 && written > max {
+		cleanup()
+		return nil, fmt.Errorf("%w: upload exceeds the %d byte limit", domain.ErrInvalid, max)
 	}
 	if err := tmp.Sync(); err != nil {
 		cleanup()
@@ -206,6 +233,22 @@ func (f *Files) Upload(ctx context.Context, u *domain.User, areaTag, filename, d
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName)
 		return nil, fmt.Errorf("files: close upload: %w", err)
+	}
+
+	// The quota check happens under the user's lock, after the bytes are
+	// known, so concurrent uploads cannot both pass an outdated total.
+	lock := filesUploadLock(u.ID)
+	lock.Lock()
+	defer lock.Unlock()
+	used, err := f.st.UserUploadBytes(u.ID)
+	if err != nil {
+		os.Remove(tmpName)
+		return nil, err
+	}
+	if quota > 0 && used+written > quota {
+		os.Remove(tmpName)
+		return nil, fmt.Errorf("%w: %d of %d bytes used; this upload needs %d",
+			domain.ErrQuota, used, quota, written)
 	}
 	if err := os.Rename(tmpName, final); err != nil {
 		os.Remove(tmpName)

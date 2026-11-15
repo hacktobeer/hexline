@@ -393,47 +393,14 @@ func (s *Server) runCommand(sess ssh.Session) {
 			_ = sess.Exit(2)
 			return
 		}
-		max := s.deps.Cfg.Storage.MaxUploadBytes
-		if err := os.MkdirAll(s.deps.Cfg.FilesPath(), 0o750); err != nil {
-			fmt.Fprintf(sess, "error: %v\r\n", err)
-			_ = sess.Exit(1)
-			return
-		}
-		tmp, err := os.CreateTemp(s.deps.Cfg.FilesPath(), ".hexline-upload-*")
+		file, err := s.deps.Files.UploadStream(context.Background(), user, area, filename, "",
+			sess, s.deps.Cfg.Storage.MaxUploadBytes)
 		if err != nil {
 			fmt.Fprintf(sess, "error: %v\r\n", err)
 			_ = sess.Exit(1)
 			return
 		}
-		tmpName := tmp.Name()
-		defer os.Remove(tmpName)
-		n, err := io.Copy(tmp, io.LimitReader(sess, max+1))
-		if err != nil {
-			tmp.Close()
-			fmt.Fprintf(sess, "error: receive failed: %v\r\n", err)
-			_ = sess.Exit(1)
-			return
-		}
-		if n > max {
-			tmp.Close()
-			fmt.Fprintf(sess, "error: upload exceeds the %d byte limit\r\n", max)
-			_ = sess.Exit(1)
-			return
-		}
-		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-			tmp.Close()
-			fmt.Fprintf(sess, "error: %v\r\n", err)
-			_ = sess.Exit(1)
-			return
-		}
-		file, err := s.deps.Files.Upload(context.Background(), user, area, filename, "", tmp, n)
-		tmp.Close()
-		if err != nil {
-			fmt.Fprintf(sess, "error: %v\r\n", err)
-			_ = sess.Exit(1)
-			return
-		}
-		s.log.Info("upload", "handle", user.Handle, "file", file.Filename, "bytes", n)
+		s.log.Info("upload", "handle", user.Handle, "file", file.Filename, "bytes", file.SizeBytes)
 		fmt.Fprintf(sess, "stored %s/%s (%d bytes, sha256 %s)\r\n", area, file.Filename, file.SizeBytes, file.SHA256)
 		_ = sess.Exit(0)
 	case "whoami":

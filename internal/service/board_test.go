@@ -365,3 +365,48 @@ func TestBoardsSearchRespectsACLAndUnreadTotal(t *testing.T) {
 		t.Fatalf("unread total after mark all = %d, %v; want 0", total, err)
 	}
 }
+
+func TestThreadLoadsLatestPageAndOlderPosts(t *testing.T) {
+	st, _, boards := boardTestEnv(t)
+	ctx := context.Background()
+	user := boardTestUser(t, st, "pager", domain.RoleUser, domain.StatusActive)
+	general, err := st.BoardAreaByTag("general")
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, err := boards.CreateThread(ctx, user, general.ID, "long thread", "post 0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed directly: the service rate limit is intentionally low.
+	for i := 1; i < 60; i++ {
+		if _, err := st.CreatePost(thread.ID, user.ID, "post "+strconv.Itoa(i), time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	th, page, err := boards.Thread(ctx, user, thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 50 {
+		t.Fatalf("first page = %d posts, want 50", len(page))
+	}
+	if page[len(page)-1].Body != "post 59" {
+		t.Fatalf("latest post missing: %q", page[len(page)-1].Body)
+	}
+	if th.PostCount != 60 {
+		t.Fatalf("thread count = %d, want 60", th.PostCount)
+	}
+
+	older, err := boards.OlderPosts(ctx, user, thread.ID, page[0].ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(older) != 10 {
+		t.Fatalf("older page = %d posts, want 10", len(older))
+	}
+	if older[len(older)-1].ID >= page[0].ID {
+		t.Fatal("older page overlaps the first page")
+	}
+}

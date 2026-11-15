@@ -516,9 +516,9 @@ type postViewScreen struct {
 
 func newPostView(a *App, arg any) Screen {
 	spec := boardThreadArgOf(arg)
-	hints := "j/k scroll  space page  n/p post  r reply  e edit  esc back"
+	hints := "j/k scroll  n/p post  o older  r reply  e edit  esc back"
 	if a.IsModerator() {
-		hints = "j/k scroll  n/p post  r reply  e edit  d delete  l lock  s sticky  m move  esc back"
+		hints = "j/k scroll  n/p post  o older  r reply  e edit  d delete  l lock  s sticky  m move  esc back"
 	}
 	return &postViewScreen{
 		BaseScreen: BaseScreen{Route: RoutePosts, TitleText: "Thread", Hints: hints},
@@ -554,6 +554,33 @@ func boardLoadThread(a *App, threadID string) tea.Cmd {
 		// thread, so it is intentionally best effort.
 		_ = a.Boards.MarkRead(ctx, a.User(), thread.ID)
 		return boardThreadMsg{thread: thread, posts: posts, sigs: sigs, areas: areas}
+	}
+}
+
+// boardOlderMsg carries one page of older posts for the reader.
+type boardOlderMsg struct {
+	posts []domain.Post
+	sigs  map[string]string
+	err   error
+}
+
+func boardLoadOlder(a *App, threadID string, before int64) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		posts, err := a.Boards.OlderPosts(ctx, a.User(), threadID, before, 50)
+		if err != nil {
+			return boardOlderMsg{err: err}
+		}
+		sigs := make(map[string]string)
+		for _, p := range posts {
+			if _, ok := sigs[p.AuthorID]; ok {
+				continue
+			}
+			if au, err := a.Store.UserByID(p.AuthorID); err == nil {
+				sigs[p.AuthorID] = au.Signature
+			}
+		}
+		return boardOlderMsg{posts: posts, sigs: sigs}
 	}
 }
 
@@ -611,6 +638,22 @@ func (s *postViewScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 		}
 		s.jumpPostID = 0
 		s.prepared = false
+		return nil
+	case boardOlderMsg:
+		if msg.err != nil {
+			return a.Errorf(msg.err, "load older posts")
+		}
+		if len(msg.posts) == 0 {
+			a.Flash("no older posts")
+			return nil
+		}
+		s.posts = append(msg.posts, s.posts...)
+		s.idx += len(msg.posts)
+		for id, sig := range msg.sigs {
+			s.sigs[id] = sig
+		}
+		s.prepared = false
+		a.Flash("loaded %d older posts", len(msg.posts))
 		return nil
 	case tea.KeyMsg:
 		return s.updateKey(a, msg)
@@ -688,6 +731,11 @@ func (s *postViewScreen) updateKey(a *App, key tea.KeyMsg) tea.Cmd {
 			s.idx--
 			s.prepared = false
 		}
+	case "o":
+		if len(s.posts) == 0 {
+			return nil
+		}
+		return boardLoadOlder(a, s.threadID, s.posts[0].ID)
 	case "r":
 		if s.thread == nil {
 			return nil

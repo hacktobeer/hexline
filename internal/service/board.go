@@ -209,7 +209,7 @@ func (b *Boards) Thread(ctx context.Context, u *domain.User, threadID string) (*
 		return nil, nil, err
 	}
 	includeDeleted := boardCanModerate(area, u)
-	posts, err := b.st.PostsByThread(thread.ID, includeDeleted)
+	posts, err := b.st.PostsByThreadPage(thread.ID, 0, boardThreadPageSize, includeDeleted)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -408,6 +408,20 @@ func (b *Boards) MoveThread(ctx context.Context, actor *domain.User, threadID, t
 	return b.boardAudit(actor, "thread.move", "thread", thread.ID, map[string]any{
 		"from": from.Tag, "to": to.Tag,
 	})
+}
+
+// boardThreadPageSize bounds how many posts a thread screen holds in memory.
+const boardThreadPageSize = 50
+
+// OlderPosts loads the page of posts before beforeID. Callers use it to walk
+// backwards through long threads instead of loading everything at once.
+func (b *Boards) OlderPosts(ctx context.Context, u *domain.User, threadID string, beforeID int64, limit int) ([]domain.Post, error) {
+	thread, area, err := b.boardLoadThread(threadID, u)
+	if err != nil {
+		return nil, err
+	}
+	includeDeleted := boardCanModerate(area, u)
+	return b.st.PostsByThreadPage(thread.ID, beforeID, limit, includeDeleted)
 }
 
 // MarkRead advances the user's read pointer for a thread to its latest live

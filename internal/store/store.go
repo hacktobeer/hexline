@@ -24,7 +24,8 @@ var migrationFS embed.FS
 
 // Store owns the database handle. Feature files add methods on *Store.
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 // Open opens (creating if needed) the SQLite database at path.
@@ -49,7 +50,7 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("store: ping %s: %w", path, err)
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, path: path}, nil
 }
 
 // DB exposes the handle for store-internal files and diagnostics.
@@ -196,6 +197,10 @@ func (s *Store) Integrity() (string, error) {
 }
 
 // Backup writes a consistent snapshot to out using VACUUM INTO.
+//
+// It deliberately uses a second, read-only connection: the serving connection
+// is the only writer and every query queues behind it, so running VACUUM there
+// would freeze the whole board for the duration of the copy.
 func (s *Store) Backup(out string) error {
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 		return err
@@ -203,7 +208,13 @@ func (s *Store) Backup(out string) error {
 	if _, err := os.Stat(out); err == nil {
 		return fmt.Errorf("store: backup target %s already exists", out)
 	}
-	if _, err := s.db.Exec(`VACUUM INTO ?`, out); err != nil {
+	ro, err := sql.Open("sqlite", "file:"+s.path+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return fmt.Errorf("store: backup connection: %w", err)
+	}
+	defer ro.Close()
+	ro.SetMaxOpenConns(1)
+	if _, err := ro.Exec(`VACUUM INTO ?`, out); err != nil {
 		return fmt.Errorf("store: backup: %w", err)
 	}
 	return nil

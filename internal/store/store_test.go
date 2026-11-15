@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func openTemp(t *testing.T) *Store {
@@ -86,5 +87,37 @@ func TestBackupSnapshot(t *testing.T) {
 	var n int
 	if err := copyStore.DB().QueryRow(`SELECT COUNT(*) FROM areas`).Scan(&n); err != nil || n != 3 {
 		t.Fatalf("backup areas = %d, %v", n, err)
+	}
+}
+
+// A backup must not use the serving connection: every query on that one
+// connection queues, so a held read transaction would block VACUUM forever.
+func TestBackupDoesNotWaitForTheServingConnection(t *testing.T) {
+	st := openTemp(t)
+	if err := st.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Seed(); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.DB().Query(`SELECT id FROM areas`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("no seeded areas")
+	}
+
+	out := filepath.Join(t.TempDir(), "snap.db")
+	done := make(chan error, 1)
+	go func() { done <- st.Backup(out) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("backup: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("backup blocked while the serving connection was busy")
 	}
 }

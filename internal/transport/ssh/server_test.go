@@ -454,3 +454,22 @@ func TestGuestIsBlockedByIPBan(t *testing.T) {
 		t.Fatal("banned IP connected as guest")
 	}
 }
+
+func TestUploadOverCapIsRejected(t *testing.T) {
+	b := startBoardOpts(t, func(cfg *config.Config) {
+		cfg.Storage.MaxUploadBytes = 16
+	})
+	client := dial(t, b.addr, "tester", "test-password-1")
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Stdin = bytes.NewReader(make([]byte, 100))
+	out, err := sess.Output("put UPLOADS/big.bin")
+	if err == nil {
+		t.Fatalf("oversized upload accepted: %q", out)
+	}
+	if !strings.Contains(string(out), "limit") {
+		t.Fatalf("unhelpful error: %q", out)
+	}
+}

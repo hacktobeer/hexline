@@ -180,7 +180,7 @@ func TestBoardPostInsertUpdatesThreadCounters(t *testing.T) {
 	if !thread.LastPostAt.Equal(t0.Add(2 * time.Minute)) {
 		t.Fatalf("last_post_at = %v, want %v", thread.LastPostAt, t0.Add(2*time.Minute))
 	}
-	posts, err := st.PostsByThread(thread.ID, false)
+	posts, err := st.PostsByThreadPage(thread.ID, 0, 100, false)
 	if err != nil || len(posts) != 3 {
 		t.Fatalf("posts = %d, %v; want 3", len(posts), err)
 	}
@@ -253,7 +253,7 @@ func TestBoardFTSSearchFindsBodiesAndExcludesDeleted(t *testing.T) {
 	if len(hits) != 0 {
 		t.Fatalf("deleted post still searchable: %+v", hits)
 	}
-	all, err := st.PostsByThread(generalThread.ID, true)
+	all, err := st.PostsByThreadPage(generalThread.ID, 0, 100, true)
 	if err != nil || len(all) != 2 {
 		t.Fatalf("moderator post view = %d, %v; want 2 including deleted", len(all), err)
 	}
@@ -276,7 +276,7 @@ func TestBoardMoveThreadPreservesPosts(t *testing.T) {
 	if _, err := st.CreatePost(thread.ID, u.ID, "second", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	before, err := st.PostsByThread(thread.ID, false)
+	before, err := st.PostsByThreadPage(thread.ID, 0, 100, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestBoardMoveThreadPreservesPosts(t *testing.T) {
 	if moved.AreaID != tech.ID || moved.AreaTag != "tech" {
 		t.Fatalf("moved thread area = %s/%s, want tech", moved.AreaID, moved.AreaTag)
 	}
-	after, err := st.PostsByThread(thread.ID, false)
+	after, err := st.PostsByThreadPage(thread.ID, 0, 100, false)
 	if err != nil {
 		t.Fatal(err)
 	}

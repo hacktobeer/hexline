@@ -170,3 +170,21 @@ func TestLoadArtDecodesCP437(t *testing.T) {
 		t.Fatalf("got %#v", lines)
 	}
 }
+
+func TestWidthUsesDisplayColumns(t *testing.T) {
+	if got := Width("日本"); got != 4 {
+		t.Fatalf("Width(日本語) = %d, want 4", got)
+	}
+	if got := PadRight("日本", 5); got != "日本 " {
+		t.Fatalf("PadRight = %q", got)
+	}
+	if got := Clip("日本語です", 4); got != "日…" {
+		t.Fatalf("Clip = %q", got)
+	}
+	if Width(Clip("日本語です", 4)) > 4 {
+		t.Fatal("clipped string exceeds its column budget")
+	}
+	if got := Clip("abc", 10); got != "abc" {
+		t.Fatalf("Clip short = %q", got)
+	}
+}

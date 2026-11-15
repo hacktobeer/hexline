@@ -253,17 +253,31 @@ func (s *Store) PostByID(postID int64) (*domain.Post, error) {
 	return scanBoardPost(s.db.QueryRow(`SELECT `+boardPostCols+boardPostFrom+` WHERE p.id = ?`, postID))
 }
 
-// PostsByThread returns posts oldest first. Soft-deleted posts are included
-// only when includeDeleted is true (moderator views).
-func (s *Store) PostsByThread(threadID string, includeDeleted bool) ([]domain.Post, error) {
-	query := `SELECT ` + boardPostCols + boardPostFrom + ` WHERE p.thread_id = ?`
+// boardPostPageSize is the unit of thread paging.
+const boardPostPageSize = 50
+
+// PostsByThreadPage returns one page of a thread, oldest first. beforeID
+// selects posts older than that ID (0 means the newest page).
+func (s *Store) PostsByThreadPage(threadID string, beforeID int64, limit int, includeDeleted bool) ([]domain.Post, error) {
+	if limit <= 0 || limit > boardPostPageSize {
+		limit = boardPostPageSize
+	}
+	query := `SELECT ` + boardPostCols + ` FROM posts p
+		JOIN users u ON u.id = p.author_id
+		WHERE p.thread_id = ?`
+	args := []any{threadID}
 	if !includeDeleted {
 		query += ` AND p.is_deleted = 0`
 	}
-	query += ` ORDER BY p.id`
-	rows, err := s.db.Query(query, threadID)
+	if beforeID > 0 {
+		query += ` AND p.id < ?`
+		args = append(args, beforeID)
+	}
+	query += ` ORDER BY p.id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("store: list posts: %w", err)
+		return nil, fmt.Errorf("store: thread page: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.Post
@@ -274,7 +288,14 @@ func (s *Store) PostsByThread(threadID string, includeDeleted bool) ([]domain.Po
 		}
 		out = append(out, *p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Queried newest-first for the LIMIT; callers read oldest-first.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
 }
 
 // UpdatePost replaces a live post body and records the edit time.
