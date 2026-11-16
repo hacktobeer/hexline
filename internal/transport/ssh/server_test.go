@@ -513,3 +513,57 @@ func TestTUIDoesNotLeaveStaleTextOnNavigation(t *testing.T) {
 	}
 	t.Fatal("no line-erase sequence after navigation: the renderer has no terminal size")
 }
+
+func TestCommandSessionsRespectConnectionLimits(t *testing.T) {
+	b := startBoardOpts(t, func(cfg *config.Config) {
+		cfg.Transport.SSH.MaxPerIP = 1
+		cfg.Transport.SSH.MaxSessions = 4
+	})
+
+	// Hold the single per-IP slot with an interactive session.
+	client := dial(t, b.addr, "tester", "test-password-1")
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if err := sess.RequestPty("xterm-256color", 24, 80, gossh.TerminalModes{gossh.ECHO: 1}); err != nil {
+		t.Fatal(err)
+	}
+	var out syncBuffer
+	sess.Stdout = &out
+	sess.Stderr = &out
+	if err := sess.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "Boards") {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "Boards") {
+		t.Fatalf("menu did not render: %q", out.String())
+	}
+
+	// A one-shot command from the same host must now be refused: before the
+	// fix, `ssh bbs whoami` bypassed max_per_ip entirely.
+	client2, err := gossh.Dial("tcp", b.addr, &gossh.ClientConfig{
+		User: "tester", Auth: []gossh.AuthMethod{gossh.Password("test-password-1")},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client2.Close()
+	sess2, err := client2.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess2.Close()
+	out2, err := sess2.Output("whoami")
+	if err == nil {
+		t.Fatalf("command session bypassed the per-IP limit: %q", out2)
+	}
+	if !strings.Contains(string(out2), "busy") {
+		t.Fatalf("expected a busy message, got %q", out2)
+	}
+}

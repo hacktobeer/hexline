@@ -219,35 +219,53 @@ func sha256Sum(b []byte) []byte {
 	return sum[:]
 }
 
-// dispatch separates interactive sessions from one-shot commands.
+// dispatch separates interactive sessions from one-shot commands. Both go
+// through the same connection caps: `ssh bbs get` must not dodge the per-IP
+// or total session limits that interactive callers obey.
 func (s *Server) dispatch(sess ssh.Session) {
 	if len(sess.Command()) > 0 {
+		_, release, ok := s.acquireNode(sess)
+		if !ok {
+			return
+		}
+		defer release()
 		s.runCommand(sess)
 		return
 	}
 	s.runSession(sess)
 }
 
-func (s *Server) runSession(sess ssh.Session) {
+// acquireNode enforces the per-IP and total session caps and returns the
+// client IP plus a release function. It is shared by interactive and
+// one-shot sessions so neither can bypass the limits.
+func (s *Server) acquireNode(sess ssh.Session) (string, func(), bool) {
 	ip := sess.RemoteAddr().String()
 	if !s.acquireIP(ip) {
 		fmt.Fprint(sess, "All nodes for your address are busy. Try again later.\r\n")
 		_ = sess.Exit(1)
-		return
+		return ip, nil, false
 	}
-	defer s.releaseIP(ip)
-
 	if max := s.deps.Cfg.Transport.SSH.MaxSessions; s.active.Load() >= int64(max) {
+		s.releaseIP(ip)
 		fmt.Fprint(sess, "The board is full. Try again later.\r\n")
 		_ = sess.Exit(1)
-		return
+		return ip, nil, false
 	}
 	s.active.Add(1)
 	s.total.Add(1)
-	defer func() {
+	return ip, func() {
 		s.active.Add(-1)
+		s.releaseIP(ip)
 		s.releaseMemoryWhenIdle()
-	}()
+	}, true
+}
+
+func (s *Server) runSession(sess ssh.Session) {
+	ip, release, ok := s.acquireNode(sess)
+	if !ok {
+		return
+	}
+	defer release()
 
 	ctx := sess.Context()
 	user, err := s.sessionUser(ctx)
