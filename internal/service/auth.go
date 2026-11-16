@@ -135,6 +135,12 @@ func (a *Auth) Register(ctx context.Context, req RegisterRequest) (*domain.User,
 	if err := a.checkBans(ctx, req.Handle, req.IPHash); err != nil {
 		return nil, err
 	}
+	// The CLI (AllowClosed) is a trusted local path and must not be throttled.
+	if !req.AllowClosed {
+		if err := a.checkRegisterThrottle(req.IPHash); err != nil {
+			return nil, err
+		}
+	}
 	if req.AllowReserved {
 		if err := domain.ValidateHandleShape(req.Handle); err != nil {
 			return nil, err
@@ -171,6 +177,9 @@ func (a *Auth) Register(ctx context.Context, req RegisterRequest) (*domain.User,
 	}
 	if err := a.store.CreateUser(u); err != nil {
 		return nil, err
+	}
+	if !req.AllowClosed {
+		a.recordRegister(req.IPHash)
 	}
 	a.auditEvent(domain.AuditEntry{
 		ActorID: u.ID, Actor: u.Handle, Action: "auth.register", TargetKind: "user",
@@ -374,6 +383,44 @@ func (a *Auth) checkBans(ctx context.Context, handle, ipHash string) error {
 		IPHash: ipHash, Detail: fmt.Sprintf(`{"reason":%q}`, reason),
 	})
 	return fmt.Errorf("%w: this connection is not welcome here", domain.ErrPermission)
+}
+
+// checkRegisterThrottle rejects account creation from an IP that has already
+// created the configured number of accounts within the login window.
+func (a *Auth) checkRegisterThrottle(ipHash string) error {
+	if ipHash == "" {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	key := "r:i:" + ipHash
+	f, ok := a.fails[key]
+	if ok && a.now().Before(f.until) && f.count >= a.cfg.Limits.LoginAttempts {
+		return fmt.Errorf("%w: too many new accounts from this address, try again later", domain.ErrRateLimited)
+	}
+	return nil
+}
+
+// recordRegister counts a successful account creation toward the per-IP
+// registration throttle.
+func (a *Auth) recordRegister(ipHash string) {
+	if ipHash == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	key := "r:i:" + ipHash
+	f := a.fails[key]
+	if f == nil {
+		f = &failWindow{}
+		a.fails[key] = f
+	}
+	now := a.now()
+	if now.After(f.until) {
+		f.count = 0
+	}
+	f.count++
+	f.until = now.Add(a.cfg.Limits.LoginWindow)
 }
 
 func (a *Auth) auditEvent(e domain.AuditEntry) {

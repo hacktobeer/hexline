@@ -273,3 +273,34 @@ func TestPasswordHasherDummyMatchesVerifyCost(t *testing.T) {
 		t.Fatalf("verify own hash = %v %v", ok, err)
 	}
 }
+
+func TestRegistrationIsRateLimitedPerIP(t *testing.T) {
+	a, _ := testAuth(t)
+	ctx := context.Background()
+	a.cfg.Limits.LoginAttempts = 2
+	now := time.Now().UTC()
+	a.SetClock(func() time.Time { return now })
+
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "reg-1", Password: "password123", IPHash: "ip1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "reg-2", Password: "password123", IPHash: "ip1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "reg-3", Password: "password123", IPHash: "ip1"}); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("third registration from one IP = %v, want rate limited", err)
+	}
+	// A different IP is not affected.
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "reg-4", Password: "password123", IPHash: "ip2"}); err != nil {
+		t.Fatalf("other IP was throttled: %v", err)
+	}
+	// After the window the original IP may register again.
+	a.SetClock(func() time.Time { return now.Add(2 * time.Hour) })
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "reg-5", Password: "password123", IPHash: "ip1"}); err != nil {
+		t.Fatalf("registration after window: %v", err)
+	}
+	// The sysop CLI path (AllowClosed) is never throttled.
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "cli-made", Password: "password123", IPHash: "ip1", AllowClosed: true}); err != nil {
+		t.Fatalf("CLI registration throttled: %v", err)
+	}
+}
