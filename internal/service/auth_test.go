@@ -228,8 +228,11 @@ func TestBanCheckerBlocksLoginAndRegistration(t *testing.T) {
 		t.Fatalf("banned IP registered: %v", err)
 	}
 	var n int
-	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'auth.banned'`).Scan(&n); err != nil || n == 0 {
-		t.Fatalf("expected auth.banned audit rows, got %d (%v)", n, err)
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'auth.banned'`).Scan(&n); err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("banned attempts wrote %d audit rows; the ban.add record is the audit trail", n)
 	}
 
 	a.SetBanChecker(func(ctx context.Context, handle, ipHash string) (bool, string, error) { return false, "", nil })

@@ -396,19 +396,17 @@ func (a *Auth) sweepLocked(now time.Time) {
 }
 
 // checkBans rejects banned handles and IP hashes with a generic message that
-// does not reveal which scope matched.
+// does not reveal which scope matched. The ban itself is already audited at
+// ban.add; a per-attempt row would turn each rejected probe into a write on
+// the single database connection.
 func (a *Auth) checkBans(ctx context.Context, handle, ipHash string) error {
 	if a.bans == nil {
 		return nil
 	}
-	banned, reason, err := a.bans(ctx, handle, ipHash)
+	banned, _, err := a.bans(ctx, handle, ipHash)
 	if err != nil || !banned {
 		return nil
 	}
-	a.auditEvent(domain.AuditEntry{
-		Actor: handle, Action: "auth.banned", TargetKind: "handle", TargetID: handle,
-		IPHash: ipHash, Detail: fmt.Sprintf(`{"reason":%q}`, reason),
-	})
 	return fmt.Errorf("%w: this connection is not welcome here", domain.ErrPermission)
 }
 
