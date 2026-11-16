@@ -648,3 +648,32 @@ func TestInternalFileErrorsDoNotLeakPaths(t *testing.T) {
 		t.Fatalf("expected a generic message, got %q", out)
 	}
 }
+
+func TestPendingRegistrationCannotRunCommands(t *testing.T) {
+	b := startBoard(t)
+	// Unknown handle + any password enters registration mode (no account yet).
+	client, err := gossh.Dial("tcp", b.addr, &gossh.ClientConfig{
+		User: "not-registered-yet", Auth: []gossh.AuthMethod{gossh.Password("some-password")},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	out, err := sess.Output("whoami")
+	if err == nil {
+		t.Fatalf("pending registration ran whoami and got %q", out)
+	}
+	if !strings.Contains(string(out), "complete registration") {
+		t.Fatalf("expected registration-first message, got %q", out)
+	}
+	if _, err := b.store.UserByHandle("not-registered-yet"); err == nil {
+		t.Fatal("account was created by a one-shot command")
+	}
+}

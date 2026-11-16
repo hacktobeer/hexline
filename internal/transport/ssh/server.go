@@ -387,6 +387,14 @@ func (s *Server) runCommand(sess ssh.Session) {
 		_ = sess.Exit(1)
 		return
 	}
+	// A caller who connected with an unknown handle has not registered yet;
+	// they may finish registration but must not run commands (get/whoami/put)
+	// under a probation shell. Guest is the deliberate anonymous reader.
+	if user.ID == "" && !user.IsGuest {
+		fmt.Fprint(sess, "error: complete registration first\r\n")
+		_ = sess.Exit(1)
+		return
+	}
 	args := sess.Command()
 	switch args[0] {
 	case "get":
