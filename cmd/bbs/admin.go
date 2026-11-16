@@ -652,7 +652,7 @@ func adminUserCmd(configPath *string) *cobra.Command {
 		},
 	}
 
-	var handle, role, password, realName string
+	var handle, role, password, passwordFile, realName string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create an account (prints a generated password when omitted)",
@@ -667,10 +667,9 @@ func adminUserCmd(configPath *string) *cobra.Command {
 			if !r.Valid() {
 				return fmt.Errorf("unknown role %q (user, moderator, sysop)", role)
 			}
-			generated := false
-			if password == "" {
-				password = randomPassword()
-				generated = true
+			password, generated, err := adminResolvePassword(password, passwordFile)
+			if err != nil {
+				return err
 			}
 			cfg, err := loadConfig(*configPath)
 			if err != nil {
@@ -716,7 +715,8 @@ func adminUserCmd(configPath *string) *cobra.Command {
 	}
 	create.Flags().StringVar(&handle, "handle", "", "account handle")
 	create.Flags().StringVar(&role, "role", "user", "user, moderator or sysop")
-	create.Flags().StringVar(&password, "password", "", "password (generated when empty)")
+	create.Flags().StringVar(&password, "password", "", "password (generated when empty; visible in shell history)")
+	create.Flags().StringVar(&passwordFile, "password-file", "", "read the password from this file instead of the command line")
 	create.Flags().StringVar(&realName, "name", "", "real name (optional)")
 
 	list := &cobra.Command{
@@ -812,7 +812,7 @@ func adminUserCmd(configPath *string) *cobra.Command {
 		},
 	}
 
-	var newPassword string
+	var newPassword, pwFile string
 	passwd := &cobra.Command{
 		Use:   "passwd HANDLE",
 		Short: "Reset an account password",
@@ -830,8 +830,9 @@ func adminUserCmd(configPath *string) *cobra.Command {
 			if err := rt.store.Migrate(); err != nil {
 				return err
 			}
-			if newPassword == "" {
-				newPassword = randomPassword()
+			newPassword, _, err = adminResolvePassword(newPassword, pwFile)
+			if err != nil {
+				return err
 			}
 			if err := rt.auth.ResetPassword(context.Background(), args[0], newPassword); err != nil {
 				return err
@@ -840,7 +841,8 @@ func adminUserCmd(configPath *string) *cobra.Command {
 			return nil
 		},
 	}
-	passwd.Flags().StringVar(&newPassword, "password", "", "new password (generated when empty)")
+	passwd.Flags().StringVar(&newPassword, "password", "", "new password (generated when empty; visible in shell history)")
+	passwd.Flags().StringVar(&pwFile, "password-file", "", "read the new password from this file instead of the command line")
 
 	status := &cobra.Command{
 		Use:   "status HANDLE active|suspended",
@@ -972,4 +974,30 @@ func randomPassword() string {
 		return "changeme-please"
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// adminResolvePassword picks the new password from --password or
+// --password-file, or generates one. generated is true only when a fresh
+// password was created. Reading from a file keeps secrets out of shell
+// history and the process list.
+func adminResolvePassword(flagValue, flagFile string) (pw string, generated bool, err error) {
+	if flagValue != "" && flagFile != "" {
+		return "", false, errors.New("use --password or --password-file, not both")
+	}
+	switch {
+	case flagFile != "":
+		b, err := os.ReadFile(flagFile)
+		if err != nil {
+			return "", false, fmt.Errorf("read password file: %w", err)
+		}
+		pw = strings.TrimSpace(string(b))
+		if pw == "" {
+			return "", false, errors.New("password file is empty")
+		}
+		return pw, false, nil
+	case flagValue != "":
+		return flagValue, false, nil
+	default:
+		return randomPassword(), true, nil
+	}
 }
