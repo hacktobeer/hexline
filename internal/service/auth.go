@@ -96,6 +96,9 @@ func (a *Auth) Authenticate(ctx context.Context, handle, password, ipHash string
 	}
 	u, err := a.store.UserByHandle(handle)
 	if err != nil {
+		// Burn the same argon2 cost as a real verify so the response time and
+		// SSH outcome do not reveal whether the handle exists.
+		a.hasher.Dummy()
 		a.recordFailure(handle, ipHash, false)
 		return nil, err
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -90,8 +91,9 @@ func parsePHC(phc string) (mem, iters uint32, threads uint8, salt, hash []byte, 
 // PasswordHasher serializes expensive hashes so a login burst cannot exhaust
 // memory (64 MiB per concurrent argon2 call).
 type PasswordHasher struct {
-	params PasswordParams
-	sem    chan struct{}
+	params    PasswordParams
+	sem       chan struct{}
+	dummyRuns atomic.Int64
 }
 
 // NewPasswordHasher returns a hasher with at most n concurrent derivations.
@@ -111,6 +113,27 @@ func (h *PasswordHasher) Hash(password string) (string, error) {
 	defer func() { <-h.sem }()
 	return HashPassword(password, h.params)
 }
+
+// dummySalt is a fixed salt used only for equalizing timing on unknown
+// handles. It never corresponds to a stored hash.
+var dummySalt = [16]byte{
+	0x68, 0x65, 0x78, 0x6c, 0x69, 0x6e, 0x65, 0x2d,
+	0x64, 0x75, 0x6d, 0x6d, 0x79, 0x2d, 0x73, 0x61,
+}
+
+// Dummy performs an argon2id derivation of identical cost to a real verify,
+// with a fixed salt. Login calls it for unknown handles so the wall-clock
+// time does not reveal whether a handle exists.
+func (h *PasswordHasher) Dummy() {
+	h.sem <- struct{}{}
+	defer func() { <-h.sem }()
+	_ = argon2.IDKey([]byte("hexline-dummy-password"), dummySalt[:],
+		h.params.Time, h.params.Memory, h.params.Threads, h.params.KeyLen)
+	h.dummyRuns.Add(1)
+}
+
+// DummyRuns reports how many equalizing hashes have been performed.
+func (h *PasswordHasher) DummyRuns() int64 { return h.dummyRuns.Load() }
 
 // Verify checks a password, returning whether the stored hash should be
 // upgraded to the current parameters.

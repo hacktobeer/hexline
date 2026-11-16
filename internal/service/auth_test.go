@@ -237,3 +237,39 @@ func TestBanCheckerBlocksLoginAndRegistration(t *testing.T) {
 		t.Fatalf("unbanned login failed: %v", err)
 	}
 }
+
+func TestUnknownHandleBurnsAnEqualizingHash(t *testing.T) {
+	a, _ := testAuth(t)
+	ctx := context.Background()
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "known-user", Password: "password123"}); err != nil {
+		t.Fatal(err)
+	}
+	before := a.hasher.DummyRuns()
+	_, err := a.Authenticate(ctx, "nobody-here", "whatever123", "ip")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown handle error = %v, want ErrNotFound", err)
+	}
+	if a.hasher.DummyRuns() != before+1 {
+		t.Fatalf("dummy hashes = %d, want %d (unknown handles must burn the same cost)",
+			a.hasher.DummyRuns(), before+1)
+	}
+}
+
+func TestPasswordHasherDummyMatchesVerifyCost(t *testing.T) {
+	p := PasswordParams{Memory: 8 * 1024, Time: 1, Threads: 1, KeyLen: 32}
+	h := NewPasswordHasher(p, 1)
+	h.Dummy()
+	if h.DummyRuns() != 1 {
+		t.Fatalf("DummyRuns = %d", h.DummyRuns())
+	}
+	// The dummy result must never collide with a real verify: it uses a fixed
+	// salt, so a real hash of the dummy password with a fresh salt differs.
+	hash, err := h.Hash("hexline-dummy-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, _, err := h.Verify("hexline-dummy-password", hash)
+	if err != nil || !ok {
+		t.Fatalf("verify own hash = %v %v", ok, err)
+	}
+}
