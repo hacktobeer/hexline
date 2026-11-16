@@ -159,6 +159,9 @@ func (s *Server) passwordAuth(ctx ssh.Context, password string) bool {
 	ipHash := s.HashIP(ctx.RemoteAddr().String())
 
 	if strings.EqualFold(handle, "guest") {
+		if !s.deps.Cfg.Guest.Enabled {
+			return false
+		}
 		if banned, _, err := s.deps.Admin.IsBanned(ctx, "", ipHash); err == nil && banned {
 			return false
 		}

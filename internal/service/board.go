@@ -50,7 +50,20 @@ func boardUserID(u *domain.User) string {
 }
 
 func boardCanRead(a *domain.Area, u *domain.User) bool {
-	return a != nil && a.ACL.CanRead(boardRole(u))
+	if a == nil || !a.ACL.CanRead(boardRole(u)) {
+		return false
+	}
+	// Non-public areas are hidden from anonymous readers (guest, pending
+	// registration). Registered callers see them per the ACL.
+	if !a.IsPublic && boardAnonymous(u) {
+		return false
+	}
+	return true
+}
+
+// boardAnonymous reports a caller who has not completed registration.
+func boardAnonymous(u *domain.User) bool {
+	return u == nil || u.IsGuest || u.ID == ""
 }
 
 func boardCanPost(a *domain.Area, u *domain.User) bool {

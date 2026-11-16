@@ -72,6 +72,11 @@ Be excellent to each other. New callers are on probation until 3 days and
 [registration]
 open = true
 
+# Anonymous read-only demo account. Set enabled = false to require an account
+# for every connection (private boards).
+[guest]
+enabled = true
+
 # D9: probation ends at both thresholds; moderators can promote early.
 [probation]
 days = 3

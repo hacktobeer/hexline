@@ -567,3 +567,16 @@ func TestCommandSessionsRespectConnectionLimits(t *testing.T) {
 		t.Fatalf("expected a busy message, got %q", out2)
 	}
 }
+
+func TestGuestCanBeDisabled(t *testing.T) {
+	b := startBoardOpts(t, func(cfg *config.Config) {
+		cfg.Guest.Enabled = false
+	})
+	_, err := gossh.Dial("tcp", b.addr, &gossh.ClientConfig{
+		User: "guest", Auth: []gossh.AuthMethod{gossh.Password("anything")},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+	})
+	if err == nil {
+		t.Fatal("guest logged in while guest.enabled = false")
+	}
+}

@@ -101,3 +101,17 @@ func TestMissingConfigFileIsAnError(t *testing.T) {
 		t.Fatal("expected error for missing config")
 	}
 }
+
+func TestGuestToggleViaEnv(t *testing.T) {
+	t.Setenv("HEXLINE_GUEST", "false")
+	cfg, err := LoadOrDefault(filepath.Join(t.TempDir(), "absent.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Guest.Enabled {
+		t.Fatal("guest should be disabled via HEXLINE_GUEST=false")
+	}
+	if Default().Guest.Enabled != true {
+		t.Fatal("guest default should stay enabled for backward compatibility")
+	}
+}

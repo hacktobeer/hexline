@@ -410,3 +410,45 @@ func TestThreadLoadsLatestPageAndOlderPosts(t *testing.T) {
 		t.Fatal("older page overlaps the first page")
 	}
 }
+
+func TestNonPublicAreasAreHiddenFromAnonymousCallers(t *testing.T) {
+	st, _, boards := boardTestEnv(t)
+	ctx := context.Background()
+
+	secret := &domain.Area{
+		Tag: "secret", Name: "Secret", IsPublic: false, SortOrder: 500,
+		ACL: domain.ACL{Read: []domain.Role{domain.RoleUser}},
+	}
+	if err := st.CreateArea(secret); err != nil {
+		t.Fatal(err)
+	}
+	guest := &domain.User{Handle: "guest", IsGuest: true, Role: domain.RoleUser, Status: domain.StatusActive}
+	member := boardTestUser(t, st, "member", domain.RoleUser, domain.StatusActive)
+
+	areas, err := boards.Areas(ctx, guest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range areas {
+		if a.Tag == "secret" {
+			t.Fatal("guest saw a non-public area")
+		}
+	}
+	if _, err := boards.AreaByTag(ctx, guest, "secret"); !errors.Is(err, domain.ErrPermission) {
+		t.Fatalf("guest area access = %v, want permission denied", err)
+	}
+
+	areas, err = boards.Areas(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range areas {
+		if a.Tag == "secret" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("registered caller could not see the non-public area")
+	}
+}

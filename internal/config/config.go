@@ -25,6 +25,7 @@ type Config struct {
 	Probation    Probation    `toml:"probation"`
 	Registration Registration `toml:"registration"`
 	Security     Security     `toml:"security"`
+	Guest        Guest        `toml:"guest"`
 }
 
 // Server holds process-wide settings.
@@ -117,6 +118,12 @@ type Registration struct {
 	Open bool `toml:"open"`
 }
 
+// Guest controls the anonymous read-only demo account. Disable it to require
+// an account for every connection (private boards).
+type Guest struct {
+	Enabled bool `toml:"enabled"`
+}
+
 // Default returns the built-in defaults for a fresh install.
 func Default() *Config {
 	return &Config{
@@ -154,6 +161,7 @@ func Default() *Config {
 		Security: Security{
 			ArgonMemoryKiB: 32 * 1024, ArgonTime: 3, ArgonThreads: 2, ArgonConcurrency: 2,
 		},
+		Guest: Guest{Enabled: true},
 	}
 }
 
@@ -254,6 +262,7 @@ func applyEnv(c *Config) {
 	boolean("HEXLINE_REGISTRATION_OPEN", &c.Registration.Open)
 	num("HEXLINE_PROBATION_DAYS", &c.Probation.Days)
 	num("HEXLINE_PROBATION_POSTS", &c.Probation.Posts)
+	boolean("HEXLINE_GUEST", &c.Guest.Enabled)
 	if v, ok := os.LookupEnv("HEXLINE_ARGON_MEMORY_KIB"); ok {
 		if n, err := strconv.ParseUint(strings.TrimSpace(v), 10, 32); err == nil {
 			c.Security.ArgonMemoryKiB = uint32(n)
