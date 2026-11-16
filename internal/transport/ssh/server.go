@@ -403,7 +403,7 @@ func (s *Server) runCommand(sess ssh.Session) {
 		}
 		rc, file, err := s.deps.Files.OpenDownload(context.Background(), user, area, filename)
 		if err != nil {
-			fmt.Fprintf(sess, "error: %v\r\n", err)
+			s.commandError(sess, "get", user.Handle, err)
 			_ = sess.Exit(1)
 			return
 		}
@@ -431,7 +431,7 @@ func (s *Server) runCommand(sess ssh.Session) {
 		file, err := s.deps.Files.UploadStream(context.Background(), user, area, filename, "",
 			sess, s.deps.Cfg.Storage.MaxUploadBytes)
 		if err != nil {
-			fmt.Fprintf(sess, "error: %v\r\n", err)
+			s.commandError(sess, "put", user.Handle, err)
 			_ = sess.Exit(1)
 			return
 		}
@@ -456,6 +456,39 @@ func splitSpec(spec string) (area, name string, ok bool) {
 		return "", "", false
 	}
 	return spec[:i], spec[i+1:], true
+}
+
+// userFacing reports whether err is safe to show a caller. Domain errors
+// carry no server internals; filesystem errors embed absolute paths and must
+// be kept server-side.
+func userFacing(err error) bool {
+	for e := err; e != nil; {
+		switch e {
+		case domain.ErrNotFound, domain.ErrPermission, domain.ErrInvalid,
+			domain.ErrQuota, domain.ErrProbation, domain.ErrConflict,
+			domain.ErrRateLimited, domain.ErrUnavailable, domain.ErrClosed,
+			domain.ErrSuspended:
+			return true
+		}
+		u, ok := e.(interface{ Unwrap() error })
+		if !ok {
+			return false
+		}
+		e = u.Unwrap()
+	}
+	return false
+}
+
+// commandError prints an error for a one-shot command: user-facing errors are
+// shown as-is, internal errors are logged and replaced with a generic message
+// so filesystem paths never reach the client.
+func (s *Server) commandError(sess ssh.Session, command, handle string, err error) {
+	if userFacing(err) {
+		fmt.Fprintf(sess, "error: %v\r\n", err)
+		return
+	}
+	s.log.Warn("command failed", "command", command, "handle", handle, "err", err)
+	fmt.Fprint(sess, "error: an internal error occurred; please try again later\r\n")
 }
 
 func (s *Server) acquireIP(ip string) bool {

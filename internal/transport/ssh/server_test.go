@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -578,5 +580,71 @@ func TestGuestCanBeDisabled(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("guest logged in while guest.enabled = false")
+	}
+}
+
+func TestUserFacingDistinguishesDomainFromInternalErrors(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{fmt.Errorf("%w: no such file", domain.ErrNotFound), true},
+		{fmt.Errorf("%w: quota hit", domain.ErrQuota), true},
+		{fmt.Errorf("files: open download: open /data/files/x: no such file or directory"), false},
+		{fmt.Errorf("files: create upload: open /data/files/u: permission denied"), false},
+	}
+	for _, c := range cases {
+		if got := userFacing(c.err); got != c.want {
+			t.Errorf("userFacing(%q) = %v, want %v", c.err, got, c.want)
+		}
+	}
+}
+
+func TestInternalFileErrorsDoNotLeakPaths(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-denied error requires a non-root test user")
+	}
+	b := startBoard(t)
+	client := dial(t, b.addr, "tester", "test-password-1")
+
+	payload := []byte("secret payload")
+	up, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	up.Stdin = bytes.NewReader(payload)
+	if _, err := up.Output("put UPLOADS/leak.bin"); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	// Make the stored file unreadable so OpenDownload hits its internal
+	// error branch (EACCES), which previously leaked the absolute path.
+	area, err := b.store.FileAreaByTag("uploads")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := b.store.FileByAreaAndName(area.ID, "leak.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	abs := filepath.Join(b.cfg.FilesPath(), file.StoredPath)
+	if err := os.Chmod(abs, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(abs, 0o600) })
+
+	down, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := down.Output("get UPLOADS/leak.bin")
+	if err == nil {
+		t.Fatalf("unreadable file was served: %q", out)
+	}
+	if strings.Contains(string(out), b.cfg.FilesPath()) {
+		t.Fatalf("internal error leaked the filesystem path: %q", out)
+	}
+	if !strings.Contains(string(out), "internal error") {
+		t.Fatalf("expected a generic message, got %q", out)
 	}
 }
