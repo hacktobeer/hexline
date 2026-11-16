@@ -19,13 +19,14 @@ import (
 
 // Auth handles registration, login, profiles and probation (D3/D9).
 type Auth struct {
-	store  *store.Store
-	cfg    *config.Config
-	hasher *PasswordHasher
-	now    func() time.Time
-	mu     sync.Mutex
-	fails  map[string]*failWindow
-	audit  func(domain.AuditEntry)
+	store          *store.Store
+	cfg            *config.Config
+	hasher         *PasswordHasher
+	now            func() time.Time
+	mu             sync.Mutex
+	fails          map[string]*failWindow
+	sweepWatermark int
+	audit          func(domain.AuditEntry)
 	// bans is installed by the runtime; nil means no ban checking.
 	bans func(ctx context.Context, handle, ipHash string) (bool, string, error)
 }
@@ -43,12 +44,13 @@ type failWindow struct {
 // NewAuth wires the auth service. audit may be nil.
 func NewAuth(st *store.Store, cfg *config.Config, audit func(domain.AuditEntry)) *Auth {
 	return &Auth{
-		store:  st,
-		cfg:    cfg,
-		hasher: NewPasswordHasher(DefaultPasswordParams(), 4),
-		now:    func() time.Time { return time.Now().UTC() },
-		fails:  map[string]*failWindow{},
-		audit:  audit,
+		store:          st,
+		cfg:            cfg,
+		hasher:         NewPasswordHasher(DefaultPasswordParams(), 4),
+		now:            func() time.Time { return time.Now().UTC() },
+		fails:          map[string]*failWindow{},
+		sweepWatermark: 1024,
+		audit:          audit,
 	}
 }
 
@@ -334,7 +336,16 @@ func (a *Auth) throttleCheck(handle, ipHash string) error {
 		if ipHash == "" && strings.HasPrefix(key, "i:") {
 			continue
 		}
-		if f, ok := a.fails[key]; ok && now.Before(f.until) && f.count >= a.cfg.Limits.LoginAttempts {
+		f, ok := a.fails[key]
+		if !ok {
+			continue
+		}
+		if now.After(f.until) {
+			// Expired: drop it so the map cannot grow without bound.
+			delete(a.fails, key)
+			continue
+		}
+		if f.count >= a.cfg.Limits.LoginAttempts {
 			return fmt.Errorf("%w: too many attempts, try again later", domain.ErrRateLimited)
 		}
 	}
@@ -345,6 +356,10 @@ func (a *Auth) recordFailure(handle, ipHash string, ok bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
+	// Opportunistically reclaim memory once enough stale entries accumulate.
+	if len(a.fails) >= a.sweepWatermark {
+		a.sweepLocked(now)
+	}
 	keys := []string{"h:" + strings.ToLower(handle)}
 	if ipHash != "" {
 		keys = append(keys, "i:"+ipHash)
@@ -356,6 +371,8 @@ func (a *Auth) recordFailure(handle, ipHash string, ok bool) {
 			a.fails[key] = f
 		}
 		if now.After(f.until) {
+			// Expired window starts fresh; keep the entry but reset it so the
+			// same key can fail again without leaking a new map slot.
 			f.count = 0
 		}
 		if ok {
@@ -366,6 +383,16 @@ func (a *Auth) recordFailure(handle, ipHash string, ok bool) {
 		f.until = now.Add(a.cfg.Limits.LoginWindow)
 	}
 	_ = a.store.RecordLoginAttempt(ipHash, handle, ok)
+}
+
+// sweepLocked deletes every expired failure entry. It must be called with
+// a.mu held.
+func (a *Auth) sweepLocked(now time.Time) {
+	for k, f := range a.fails {
+		if now.After(f.until) {
+			delete(a.fails, k)
+		}
+	}
 }
 
 // checkBans rejects banned handles and IP hashes with a generic message that

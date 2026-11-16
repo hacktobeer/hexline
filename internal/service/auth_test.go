@@ -304,3 +304,47 @@ func TestRegistrationIsRateLimitedPerIP(t *testing.T) {
 		t.Fatalf("CLI registration throttled: %v", err)
 	}
 }
+
+func TestFailureMapPrunesExpiredEntries(t *testing.T) {
+	a, _ := testAuth(t)
+	ctx := context.Background()
+	a.cfg.Limits.LoginAttempts = 5
+	now := time.Now().UTC()
+	a.SetClock(func() time.Time { return now })
+	if _, err := a.Register(ctx, RegisterRequest{Handle: "prune-victim", Password: "password123"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build distinct failures so the map has real entries.
+	for i := 0; i < 4; i++ {
+		if _, err := a.Authenticate(ctx, "prune-victim", "bad", "ip1"); !errors.Is(err, domain.ErrPermission) {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	if len(a.fails) == 0 {
+		t.Fatal("expected failure entries")
+	}
+
+	// Advance past the window: the next check must delete the expired keys.
+	a.SetClock(func() time.Time { return now.Add(2 * time.Hour) })
+	if err := a.throttleCheck("prune-victim", "ip1"); err != nil {
+		t.Fatalf("throttleCheck after expiry: %v", err)
+	}
+	for key := range a.fails {
+		if strings.HasPrefix(key, "h:prune-victim") || key == "i:ip1" {
+			t.Fatalf("expired entry %q was not pruned", key)
+		}
+	}
+
+	// The sweep path removes every stale entry once the watermark is crossed.
+	a.SetClock(func() time.Time { return now.Add(4 * time.Hour) })
+	a.fails["h:stale-1"] = &failWindow{until: now.Add(3 * time.Hour)}
+	a.fails["h:stale-2"] = &failWindow{until: now.Add(3 * time.Hour)}
+	a.sweepWatermark = 2
+	a.recordFailure("another", "ip2", false)
+	for key, f := range a.fails {
+		if now.Add(4 * time.Hour).After(f.until) {
+			t.Fatalf("sweep left an expired entry %q", key)
+		}
+	}
+}
